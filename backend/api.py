@@ -1,0 +1,205 @@
+"""API FastAPI : lance le solveur Julia et renvoie les tournées en JSON.
+
+Lancement (depuis le dossier backend/) :
+    .venv/bin/uvicorn api:app --port 8000
+Documentation interactive : http://localhost:8000/docs
+
+Toute erreur est renvoyée sous la forme {"etape": ..., "message": ...} où
+`etape` dit où ça a cassé : instance, lecture_instance, solveur,
+lecture_solution, validation.
+"""
+import os
+import re
+import shutil
+import subprocess
+import threading
+import time
+import uuid
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+
+from sol_to_json import ErreurBackend, convert, read_instance, write_solomon
+
+ROOT = Path(__file__).resolve().parent.parent
+INSTANCES = ROOT / "instances"
+SOLVER = ROOT / "solver" / "CVRPTW_ALNS.jl"
+JOBS = Path(__file__).resolve().parent / "jobs"
+JULIA = os.environ.get("JULIA") or shutil.which("julia")
+TIMEOUT_SOLVEUR = 900  # secondes : au-delà, on tue le calcul
+JOBS.mkdir(exist_ok=True)
+
+app = FastAPI(title="Tournées de livraison", version="0.2")
+
+# Sécurité minimale (usage local) :
+# 1. CORS limité aux pages servies depuis cette machine ;
+app.add_middleware(CORSMiddleware, allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+                   allow_methods=["*"], allow_headers=["*"])
+# 2. un seul calcul Julia à la fois (il utilise tous les coeurs) ;
+UN_SEUL_CALCUL = threading.Semaphore(1)
+# 3. nom d'instance validé (voir resolve_instance) et paramètres bornés (SolveRequest).
+
+jobs: dict[str, dict] = {}  # mémoire des calculs, perdue au redémarrage
+
+
+class SolveRequest(BaseModel):
+    instance: str = Field(description="Ex. 'homberger/C1_2_1'")
+    iterations: int = Field(5000, ge=1, le=500_000, description="Itérations par chaîne")
+    chains: int = Field(4, ge=1, le=16)
+    seed: int = 42
+
+
+def erreur(code, etape, message):
+    """Réponse d'erreur HTTP uniforme."""
+    return HTTPException(code, {"etape": etape, "message": message})
+
+
+def resolve_instance(name):
+    """Transforme 'homberger/C1_2_1' en chemin de fichier, après vérifications.
+
+    Le motif interdit '..' et les chemins absolus : on ne peut pas sortir
+    du dossier instances/.
+    """
+    if not re.fullmatch(r"[\w-]+/[\w.-]+", name) or ".." in name:
+        raise erreur(400, "instance",
+                     f"Nom invalide '{name}' (attendu : 'dossier/nom')")
+    for ext in (".txt", ".vrp"):
+        path = INSTANCES / f"{name}{ext}"
+        if path.is_file():
+            return path
+    raise erreur(404, "instance", f"Instance inconnue : {name}")
+
+
+def parse_resume(path):
+    """Lit le fichier _resume.txt écrit par le Julia (lignes 'Clé: valeur')."""
+    out = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        k, _, v = line.partition(":")
+        out[k.strip()] = v.strip()
+    ref = out.get("Reference_distance", "")
+    return {
+        "temps_calcul": float(out.get("Elapsed_seconds", "nan")),
+        "reference": float(ref) if re.fullmatch(r"[0-9.]+", ref) else None,
+        "gap_pourcent": (float(out["Distance_gap_percent"])
+                         if "Distance_gap_percent" in out else None),
+    }
+
+
+def lancer_julia(work, inst_solomon, req):
+    """Exécute le solveur. Lève ErreurBackend('solveur', ...) en cas de problème."""
+    if not JULIA:
+        raise ErreurBackend("solveur", "Julia introuvable : installez-le "
+                            "ou définissez la variable d'environnement JULIA")
+    cmd = [JULIA, f"--threads={req.chains}", "-O3", str(SOLVER), str(inst_solomon),
+           str(req.iterations), str(req.chains), "Inf", str(req.seed)]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, cwd=work,
+                              timeout=TIMEOUT_SOLVEUR)
+    except subprocess.TimeoutExpired:
+        raise ErreurBackend("solveur", f"Calcul arrêté après {TIMEOUT_SOLVEUR} s "
+                            "(réduisez les itérations)")
+    (work / "julia.log").write_text(proc.stdout + proc.stderr, encoding="utf-8")
+    sol = work / f"{inst_solomon.stem}_alns.sol"
+    if proc.returncode != 0 or not sol.exists():
+        fin = (proc.stderr or proc.stdout).strip()[-400:]
+        raise ErreurBackend("solveur", f"Le Julia a échoué (code {proc.returncode}). "
+                            f"Fin du journal : {fin}")
+    return sol
+
+
+def run_job(job_id, req, source):
+    job = jobs[job_id]
+    with UN_SEUL_CALCUL:  # les autres calculs restent 'en_attente'
+        work = JOBS / job_id
+        try:
+            work.mkdir()
+            job["statut"] = "en_cours"
+            t0 = time.time()
+            instance = read_instance(source)         # lecture_instance
+            inst_solomon = work / f"{source.stem}.txt"
+            write_solomon(instance, inst_solomon)    # format lu par le Julia
+            ref = source.with_suffix(".sol")         # solution de référence (gap)
+            if ref.exists():
+                shutil.copy(ref, work / ref.name)
+            sol = lancer_julia(work, inst_solomon, req)          # solveur
+            resultat = convert(str(source), str(sol))            # lecture_solution / validation
+            resume = work / f"{source.stem}_alns_resume.txt"
+            resultat["solveur"] = parse_resume(resume) if resume.exists() else {}
+            resultat["solveur"]["duree_totale"] = round(time.time() - t0, 2)
+            # Gap comparable à la référence : même arrondi des distances qu'elle.
+            ref_cout = resultat["solveur"].get("reference")
+            if ref_cout:
+                resultat["solveur"]["gap_benchmark_pourcent"] = round(
+                    100 * (resultat["cout_convention_benchmark"] / ref_cout - 1), 3)
+            job["resultat"] = resultat
+            job["statut"] = "termine"
+        except ErreurBackend as e:
+            job["statut"] = "erreur"
+            job["erreur"] = {"etape": e.etape, "message": e.message}
+        except Exception as e:  # noqa: BLE001 — bug inattendu : on le rend visible
+            job["statut"] = "erreur"
+            job["erreur"] = {"etape": "interne",
+                             "message": f"{type(e).__name__}: {e}"}
+
+
+@app.get("/instances")
+def list_instances():
+    """Instances disponibles, rangées par jeu (solomon, homberger, xtw)."""
+    out = []
+    for p in sorted(INSTANCES.glob("*/*")):
+        if p.suffix in (".txt", ".vrp"):
+            out.append({"nom": f"{p.parent.name}/{p.stem}", "jeu": p.parent.name,
+                        "reference": p.with_suffix(".sol").exists()})
+    return out
+
+
+@app.post("/solve", status_code=202)
+def solve(req: SolveRequest):
+    """Lance un calcul en tâche de fond. Renvoie son identifiant."""
+    source = resolve_instance(req.instance)
+    job_id = uuid.uuid4().hex[:8]
+    jobs[job_id] = {"id": job_id, "statut": "en_attente", "instance": req.instance}
+    threading.Thread(target=run_job, args=(job_id, req, source), daemon=True).start()
+    return {"id": job_id, "statut": "en_attente"}
+
+
+def get_job(job_id):
+    if job_id not in jobs:
+        raise erreur(404, "calcul", f"Calcul inconnu : {job_id}")
+    return jobs[job_id]
+
+
+def get_result(job_id):
+    """Résultat d'un calcul terminé, sinon erreur HTTP explicite."""
+    job = get_job(job_id)
+    if job["statut"] == "erreur":
+        raise erreur(409, job["erreur"]["etape"], job["erreur"]["message"])
+    if job["statut"] != "termine":
+        raise erreur(409, "calcul", f"Calcul pas fini (statut : {job['statut']})")
+    return job["resultat"]
+
+
+@app.get("/solve/{job_id}")
+def solve_status(job_id: str):
+    """Statut du calcul ; contient le résultat complet quand statut == 'termine'."""
+    return get_job(job_id)
+
+
+@app.get("/solve/{job_id}/livreurs")
+def livreurs(job_id: str):
+    """Résumé de chaque tournée (une tournée = un livreur)."""
+    return [{"livreur": t["id"], "nb_arrets": len(t["arrets"]),
+             "charge": t["charge"], "capacite": t["capacite"],
+             "distance": t["distance"], "heure_retour": t["heure_retour"]}
+            for t in get_result(job_id)["tournees"]]
+
+
+@app.get("/solve/{job_id}/livreurs/{livreur}")
+def tournee_livreur(job_id: str, livreur: int):
+    """Tournée complète d'un livreur : arrêts ordonnés et horaires."""
+    for t in get_result(job_id)["tournees"]:
+        if t["id"] == livreur:
+            return t
+    raise erreur(404, "livreur", f"Pas de tournée n°{livreur}")

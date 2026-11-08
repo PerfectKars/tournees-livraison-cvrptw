@@ -1,0 +1,13 @@
+Instance: C1_2_1
+Vehicles: 20
+Distance: 2707.415062
+Elapsed_seconds: 11.523
+Chains: 4
+Max_iterations_per_chain: 5000
+Target_reached: false
+Reference_distance: 2698.6
+Distance_gap_percent: 0.326653
+Chain_1_iterations: 5000
+Chain_2_iterations: 5000
+Chain_3_iterations: 5000
+Chain_4_iterations: 5000
