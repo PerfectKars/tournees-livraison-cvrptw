@@ -1,0 +1,31 @@
+75a76,95
+> function read_travel_matrix(path::String, n::Int)
+>     rows = [split(strip(l)) for l in readlines(path) if !isempty(strip(l))]
+>     length(rows) == n ||
+>         error("Matrice : $(length(rows)) lignes, $n attendues.")
+> 
+>     m = Matrix{Float64}(undef, n, n)
+>     for i in 1:n
+>         length(rows[i]) == n ||
+>             error("Matrice : ligne $i a $(length(rows[i])) valeurs, $n attendues.")
+>         for j in 1:n
+>             v = tryparse(Float64, rows[i][j])
+>             (v !== nothing && isfinite(v) && v >= 0) ||
+>                 error("Matrice : valeur invalide ligne $i, colonne $j.")
+>             m[i, j] = v
+>         end
+>         m[i, i] == 0 || error("Matrice : la diagonale doit valoir 0 (ligne $i).")
+>     end
+>     return m
+> end
+> 
+134a155,163
+>     end
+> 
+>     # Matrice de temps de trajet optionnelle : si <instance>.matrix existe,
+>     # elle remplace les distances euclidiennes. Une ligne par point (dépôt
+>     # d'abord), n valeurs séparées par des espaces.
+>     matrix_path = splitext(path)[1] * ".matrix"
+>     if isfile(matrix_path)
+>         travel = read_travel_matrix(matrix_path, n)
+>         println("Matrice de trajet lue : ", basename(matrix_path))
