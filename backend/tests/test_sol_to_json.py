@@ -7,7 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sol_to_json import (ErreurBackend, convention_benchmark, convert,  # noqa: E402
                          cout_benchmark, read_instance, read_solution,
-                         write_solomon)
+                         write_matrix, write_solomon)
 
 INST = Path(__file__).resolve().parent.parent.parent / "instances"
 C102 = INST / "solomon" / "C102"
@@ -110,3 +110,18 @@ def test_front_optimize_petite_sert_les_20_clients_avec_julia():
             "number_of_customers", "iterations"} <= set(res)
     assert sorted(c for t in res["routes"] for c in t) == list(range(1, 21))
     assert all(s["within_time_window"] for d in res["route_details"] for s in d["stops"])
+
+
+def test_ecriture_matrice_dans_l_ordre_depot_puis_clients(tmp_path):
+    matrice = {"0": {"0": 0.0, "7": 5.0, "3": 9.0},
+               "7": {"0": 4.0, "7": 0.0, "3": 2.5},
+               "3": {"0": 8.0, "7": 1.5, "3": 0.0}}
+    sortie = tmp_path / "i.matrix"
+    write_matrix(matrice, [0, 7, 3], sortie)
+    lignes = [l.split() for l in sortie.read_text().splitlines()]
+    assert lignes == [["0.0", "5.0", "9.0"], ["4.0", "0.0", "2.5"], ["8.0", "1.5", "0.0"]]
+
+
+def test_matrice_avec_paire_absente_leve_une_erreur(tmp_path):
+    with pytest.raises(ErreurBackend):
+        write_matrix({"0": {"0": 0.0}}, [0, 1], tmp_path / "i.matrix")

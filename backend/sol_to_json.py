@@ -163,6 +163,24 @@ def write_solomon(instance, path):
     Path(path).write_text("\n".join(lignes) + "\n", encoding="utf-8")
 
 
+def write_matrix(matrix, order, path):
+    """Écrit la matrice de trajet lue par le solveur Julia (<instance>.matrix).
+
+    matrix : dict {origine: {destination: valeur}} (clés texte ou entières),
+    order  : identifiants dans l'ordre des lignes (dépôt d'abord).
+    Une paire absente lève ErreurBackend : pas de valeur de remplacement.
+    """
+    def valeur(a, b):
+        ligne = matrix.get(str(a), matrix.get(a))
+        v = None if ligne is None else ligne.get(str(b), ligne.get(b))
+        if v is None:
+            raise ErreurBackend("instance", f"Trajet absent de la matrice : {a} -> {b}")
+        return float(v)
+
+    lignes = [" ".join(repr(valeur(a, b)) for b in order) for a in order]
+    Path(path).write_text("\n".join(lignes) + "\n", encoding="utf-8")
+
+
 def read_solution(path):
     """Lit un .sol. Renvoie (liste de routes, coût ou None)."""
     routes, cost = [], None
@@ -317,6 +335,7 @@ def convert(instance_path, sol_path, colis=None, seed=42):
         "cout_convention_benchmark": round(cout_bench, 3),
         "nb_vehicules_disponibles": inst["nb_vehicules"],
         "nb_vehicules_utilises": len(tournees),
+        "limite_depassee": len(tournees) > inst["nb_vehicules"],
         "distance_totale": cout, "cout_annonce": cost_sol,
         "valide": not erreurs, "erreurs": erreurs, "tournees": tournees,
     }
