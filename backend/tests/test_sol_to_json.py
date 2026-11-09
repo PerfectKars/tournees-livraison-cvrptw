@@ -94,3 +94,19 @@ def test_api_liste_les_trois_jeux():
     import api
     jeux = {i["jeu"] for i in TestClient(api.app).get("/instances").json()}
     assert jeux == {"solomon", "homberger", "xtw"}
+
+
+def test_front_optimize_petite_sert_les_20_clients_avec_julia():
+    """Le pont du front : mêmes clés qu'avant, tous les clients servis, fenêtres ok."""
+    import shutil
+    if not shutil.which("julia"):
+        pytest.skip("Julia absent")
+    from fastapi.testclient import TestClient
+    import api
+    r = TestClient(api.app).post("/api/optimize?mode=petite&iterations=5")
+    assert r.status_code == 200
+    res = r.json()["resultats"]
+    assert {"routes", "route_details", "cost", "number_of_routes",
+            "number_of_customers", "iterations"} <= set(res)
+    assert sorted(c for t in res["routes"] for c in t) == list(range(1, 21))
+    assert all(s["within_time_window"] for d in res["route_details"] for s in d["stops"])

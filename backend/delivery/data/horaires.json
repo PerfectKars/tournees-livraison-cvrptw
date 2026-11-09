@@ -1,0 +1,286 @@
+{
+    "nom_instance": "FENETRES_HORAIRES",
+    "mode": "horaires",
+    "nombre_vehicules": 5,
+    "capacite_vehicule": 100,
+    "depot": {
+        "id": 0,
+        "x": 50,
+        "y": 50,
+        "ready": 0,
+        "due": 600,
+        "service": 0
+    },
+    "clients": [
+        {
+            "id": 1,
+            "x": 71.11,
+            "y": 7.73,
+            "demand": 9,
+            "ready": 0,
+            "due": 540,
+            "service": 10
+        },
+        {
+            "id": 2,
+            "x": 68.89,
+            "y": 69.68,
+            "demand": 12,
+            "ready": 0,
+            "due": 600,
+            "service": 10
+        },
+        {
+            "id": 3,
+            "x": 46.38,
+            "y": 22.36,
+            "demand": 6,
+            "ready": 60,
+            "due": 600,
+            "service": 10
+        },
+        {
+            "id": 4,
+            "x": 36.59,
+            "y": 14.08,
+            "demand": 11,
+            "ready": 60,
+            "due": 600,
+            "service": 10
+        },
+        {
+            "id": 5,
+            "x": 31.5,
+            "y": 69.39,
+            "demand": 7,
+            "ready": 30,
+            "due": 600,
+            "service": 10
+        },
+        {
+            "id": 6,
+            "x": 49.25,
+            "y": 82.49,
+            "demand": 11,
+            "ready": 30,
+            "due": 600,
+            "service": 10
+        },
+        {
+            "id": 7,
+            "x": 56.03,
+            "y": 54.24,
+            "demand": 10,
+            "ready": 90,
+            "due": 480,
+            "service": 10
+        },
+        {
+            "id": 8,
+            "x": 87.54,
+            "y": 63.58,
+            "demand": 5,
+            "ready": 0,
+            "due": 540,
+            "service": 10
+        },
+        {
+            "id": 9,
+            "x": 75.54,
+            "y": 93.74,
+            "demand": 12,
+            "ready": 120,
+            "due": 570,
+            "service": 10
+        },
+        {
+            "id": 10,
+            "x": 30.36,
+            "y": 24.44,
+            "demand": 8,
+            "ready": 120,
+            "due": 570,
+            "service": 10
+        },
+        {
+            "id": 11,
+            "x": 54.96,
+            "y": 37.5,
+            "demand": 9,
+            "ready": 60,
+            "due": 570,
+            "service": 10
+        },
+        {
+            "id": 12,
+            "x": 90.72,
+            "y": 93.4,
+            "demand": 7,
+            "ready": 120,
+            "due": 570,
+            "service": 10
+        },
+        {
+            "id": 13,
+            "x": 32.7,
+            "y": 65.78,
+            "demand": 5,
+            "ready": 120,
+            "due": 540,
+            "service": 10
+        },
+        {
+            "id": 14,
+            "x": 15.6,
+            "y": 36.1,
+            "demand": 5,
+            "ready": 90,
+            "due": 570,
+            "service": 10
+        },
+        {
+            "id": 15,
+            "x": 29.79,
+            "y": 26.94,
+            "demand": 11,
+            "ready": 60,
+            "due": 570,
+            "service": 10
+        },
+        {
+            "id": 16,
+            "x": 92.46,
+            "y": 25.28,
+            "demand": 5,
+            "ready": 30,
+            "due": 600,
+            "service": 10
+        },
+        {
+            "id": 17,
+            "x": 82.98,
+            "y": 74.89,
+            "demand": 9,
+            "ready": 30,
+            "due": 600,
+            "service": 10
+        },
+        {
+            "id": 18,
+            "x": 7.25,
+            "y": 76.57,
+            "demand": 9,
+            "ready": 90,
+            "due": 480,
+            "service": 10
+        },
+        {
+            "id": 19,
+            "x": 27.89,
+            "y": 76.16,
+            "demand": 12,
+            "ready": 120,
+            "due": 480,
+            "service": 10
+        },
+        {
+            "id": 20,
+            "x": 21.81,
+            "y": 42.35,
+            "demand": 8,
+            "ready": 0,
+            "due": 600,
+            "service": 10
+        },
+        {
+            "id": 21,
+            "x": 17.04,
+            "y": 76.98,
+            "demand": 6,
+            "ready": 90,
+            "due": 540,
+            "service": 10
+        },
+        {
+            "id": 22,
+            "x": 9.72,
+            "y": 61.6,
+            "demand": 5,
+            "ready": 90,
+            "due": 600,
+            "service": 10
+        },
+        {
+            "id": 23,
+            "x": 52.23,
+            "y": 68.57,
+            "demand": 11,
+            "ready": 0,
+            "due": 540,
+            "service": 10
+        },
+        {
+            "id": 24,
+            "x": 94.97,
+            "y": 62.16,
+            "demand": 8,
+            "ready": 90,
+            "due": 480,
+            "service": 10
+        },
+        {
+            "id": 25,
+            "x": 12.71,
+            "y": 91.41,
+            "demand": 8,
+            "ready": 30,
+            "due": 600,
+            "service": 10
+        },
+        {
+            "id": 26,
+            "x": 19.23,
+            "y": 62.74,
+            "demand": 5,
+            "ready": 60,
+            "due": 600,
+            "service": 10
+        },
+        {
+            "id": 27,
+            "x": 90.03,
+            "y": 74.14,
+            "demand": 12,
+            "ready": 0,
+            "due": 480,
+            "service": 10
+        },
+        {
+            "id": 28,
+            "x": 26.26,
+            "y": 16.85,
+            "demand": 5,
+            "ready": 0,
+            "due": 480,
+            "service": 10
+        },
+        {
+            "id": 29,
+            "x": 39.04,
+            "y": 77.5,
+            "demand": 5,
+            "ready": 30,
+            "due": 540,
+            "service": 10
+        },
+        {
+            "id": 30,
+            "x": 36.92,
+            "y": 13.74,
+            "demand": 12,
+            "ready": 30,
+            "due": 600,
+            "service": 10
+        }
+    ]
+}

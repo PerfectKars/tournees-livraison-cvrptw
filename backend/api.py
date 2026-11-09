@@ -8,10 +8,8 @@ Toute erreur est renvoyée sous la forme {"etape": ..., "message": ...} où
 `etape` dit où ça a cassé : instance, lecture_instance, solveur,
 lecture_solution, validation.
 """
-import os
 import re
 import shutil
-import subprocess
 import threading
 import time
 import uuid
@@ -21,14 +19,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from delivery.main import app as front_app
+from julia_runner import UN_SEUL_CALCUL, lancer_julia
 from sol_to_json import ErreurBackend, convert, read_instance, write_solomon
 
 ROOT = Path(__file__).resolve().parent.parent
 INSTANCES = ROOT / "instances"
-SOLVER = ROOT / "solver" / "CVRPTW_ALNS.jl"
 JOBS = Path(__file__).resolve().parent / "jobs"
-JULIA = os.environ.get("JULIA") or shutil.which("julia")
-TIMEOUT_SOLVEUR = 900  # secondes : au-delà, on tue le calcul
 JOBS.mkdir(exist_ok=True)
 
 app = FastAPI(title="Tournées de livraison", version="0.2")
@@ -37,9 +34,11 @@ app = FastAPI(title="Tournées de livraison", version="0.2")
 # 1. CORS limité aux pages servies depuis cette machine ;
 app.add_middleware(CORSMiddleware, allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
                    allow_methods=["*"], allow_headers=["*"])
-# 2. un seul calcul Julia à la fois (il utilise tous les coeurs) ;
-UN_SEUL_CALCUL = threading.Semaphore(1)
+# 2. un seul calcul Julia à la fois (voir julia_runner.UN_SEUL_CALCUL) ;
 # 3. nom d'instance validé (voir resolve_instance) et paramètres bornés (SolveRequest).
+
+# Routes du front-end (/api/...) : même application, même port 8000.
+app.include_router(front_app.router)
 
 jobs: dict[str, dict] = {}  # mémoire des calculs, perdue au redémarrage
 
@@ -87,28 +86,6 @@ def parse_resume(path):
     }
 
 
-def lancer_julia(work, inst_solomon, req):
-    """Exécute le solveur. Lève ErreurBackend('solveur', ...) en cas de problème."""
-    if not JULIA:
-        raise ErreurBackend("solveur", "Julia introuvable : installez-le "
-                            "ou définissez la variable d'environnement JULIA")
-    cmd = [JULIA, f"--threads={req.chains}", "-O3", str(SOLVER), str(inst_solomon),
-           str(req.iterations), str(req.chains), "Inf", str(req.seed)]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, cwd=work,
-                              timeout=TIMEOUT_SOLVEUR)
-    except subprocess.TimeoutExpired:
-        raise ErreurBackend("solveur", f"Calcul arrêté après {TIMEOUT_SOLVEUR} s "
-                            "(réduisez les itérations)")
-    (work / "julia.log").write_text(proc.stdout + proc.stderr, encoding="utf-8")
-    sol = work / f"{inst_solomon.stem}_alns.sol"
-    if proc.returncode != 0 or not sol.exists():
-        fin = (proc.stderr or proc.stdout).strip()[-400:]
-        raise ErreurBackend("solveur", f"Le Julia a échoué (code {proc.returncode}). "
-                            f"Fin du journal : {fin}")
-    return sol
-
-
 def run_job(job_id, req, source):
     job = jobs[job_id]
     with UN_SEUL_CALCUL:  # les autres calculs restent 'en_attente'
@@ -123,7 +100,8 @@ def run_job(job_id, req, source):
             ref = source.with_suffix(".sol")         # solution de référence (gap)
             if ref.exists():
                 shutil.copy(ref, work / ref.name)
-            sol = lancer_julia(work, inst_solomon, req)          # solveur
+            sol = lancer_julia(work, inst_solomon, req.iterations,
+                               req.chains, req.seed)         # solveur
             resultat = convert(str(source), str(sol))            # lecture_solution / validation
             resume = work / f"{source.stem}_alns_resume.txt"
             resultat["solveur"] = parse_resume(resume) if resume.exists() else {}

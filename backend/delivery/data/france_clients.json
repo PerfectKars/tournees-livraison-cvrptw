@@ -1,0 +1,1724 @@
+{
+  "nom_instance": "FRANCE_100",
+  "source_geographique": "OpenStreetMap via Overpass API",
+  "attribution": "© OpenStreetMap contributors",
+  "note": "Les lieux et coordonnées sont issus d'OpenStreetMap. Demandes, fenêtres horaires et temps de service sont synthétiques. Les fenêtres utilisent une estimation provisoire du trajet depuis Nancy; elles devront être recalibrées avec les durées routières OSRM. Le nombre de véhicules a été fixé à 10 après test de faisabilité ALNS; 8 et 9 véhicules ne permettaient pas de construire une solution initiale avec les fenêtres horaires actuelles.",
+  "nombre_vehicules": 10,
+  "capacite_vehicule": 200,
+  "horizon_minutes": 2880,
+  "depot": {
+    "id": 0,
+    "name": "Dépôt central - Nancy",
+    "city": "Nancy",
+    "lat": 48.6921,
+    "lon": 6.1844,
+    "demand": 0,
+    "ready": 180,
+    "due": 2880,
+    "service": 0
+  },
+  "nombre_clients": 100,
+  "demande_totale": 1497,
+  "clients": [
+    {
+      "id": 1,
+      "name": "Mini Market",
+      "address": "16 Rue de Tolbiac, 75013",
+      "city": "Paris",
+      "category": "convenience",
+      "lat": 48.8296275,
+      "lon": 2.3747463,
+      "demand": 20,
+      "ready": 492,
+      "due": 983,
+      "service": 13,
+      "osm": {
+        "type": "node",
+        "id": 2378416452
+      }
+    },
+    {
+      "id": 2,
+      "name": "Tropic Marché",
+      "address": "",
+      "city": "Paris",
+      "category": "convenience",
+      "lat": 48.9181577,
+      "lon": 2.3322609,
+      "demand": 19,
+      "ready": 514,
+      "due": 1027,
+      "service": 23,
+      "osm": {
+        "type": "node",
+        "id": 6284553162
+      }
+    },
+    {
+      "id": 3,
+      "name": "J&P Retouches",
+      "address": "115 Boulevard Exelmans, 75016",
+      "city": "Paris",
+      "category": "tailor",
+      "lat": 48.8460761,
+      "lon": 2.2583241,
+      "demand": 19,
+      "ready": 487,
+      "due": 972,
+      "service": 24,
+      "osm": {
+        "type": "node",
+        "id": 13254290414
+      }
+    },
+    {
+      "id": 4,
+      "name": "MS informatique",
+      "address": "",
+      "city": "Paris",
+      "category": "it",
+      "lat": 48.8851251,
+      "lon": 2.4371303,
+      "demand": 11,
+      "ready": 476,
+      "due": 993,
+      "service": 13,
+      "osm": {
+        "type": "node",
+        "id": 13353833354
+      }
+    },
+    {
+      "id": 5,
+      "name": "O'92",
+      "address": "",
+      "city": "Paris",
+      "category": "fast_food",
+      "lat": 48.8007844,
+      "lon": 2.3090373,
+      "demand": 17,
+      "ready": 509,
+      "due": 894,
+      "service": 10,
+      "osm": {
+        "type": "node",
+        "id": 7519369585
+      }
+    },
+    {
+      "id": 6,
+      "name": "Chanel",
+      "address": "29-31 Rue Cambon",
+      "city": "Paris",
+      "category": "clothes",
+      "lat": 48.8681607,
+      "lon": 2.3266858,
+      "demand": 15,
+      "ready": 472,
+      "due": 1005,
+      "service": 16,
+      "osm": {
+        "type": "node",
+        "id": 4962474121
+      }
+    },
+    {
+      "id": 7,
+      "name": "Le Bosquet",
+      "address": "Route de la Pyramide, 75012",
+      "city": "Paris",
+      "category": "restaurant",
+      "lat": 48.8395574,
+      "lon": 2.4439548,
+      "demand": 15,
+      "ready": 473,
+      "due": 922,
+      "service": 22,
+      "osm": {
+        "type": "way",
+        "id": 62820139
+      }
+    },
+    {
+      "id": 8,
+      "name": "American Hospital of Paris",
+      "address": "",
+      "city": "Paris",
+      "category": "hospital",
+      "lat": 48.8926406,
+      "lon": 2.272238,
+      "demand": 15,
+      "ready": 493,
+      "due": 872,
+      "service": 12,
+      "osm": {
+        "type": "way",
+        "id": 872377068
+      }
+    },
+    {
+      "id": 9,
+      "name": "City Vision",
+      "address": "111 Avenue de Flandre, 75019",
+      "city": "Paris",
+      "category": "optician",
+      "lat": 48.890904,
+      "lon": 2.3766907,
+      "demand": 14,
+      "ready": 478,
+      "due": 912,
+      "service": 24,
+      "osm": {
+        "type": "node",
+        "id": 4983164170
+      }
+    },
+    {
+      "id": 10,
+      "name": "Tradition de Saigon",
+      "address": "7 Rue Eugène Varlin, 94800",
+      "city": "Paris",
+      "category": "fast_food",
+      "lat": 48.7940922,
+      "lon": 2.3631934,
+      "demand": 19,
+      "ready": 516,
+      "due": 1041,
+      "service": 19,
+      "osm": {
+        "type": "node",
+        "id": 4363603719
+      }
+    },
+    {
+      "id": 11,
+      "name": "Pyrénées automobiles",
+      "address": "",
+      "city": "Paris",
+      "category": "car",
+      "lat": 48.8601058,
+      "lon": 2.4008225,
+      "demand": 15,
+      "ready": 520,
+      "due": 974,
+      "service": 24,
+      "osm": {
+        "type": "node",
+        "id": 13924304467
+      }
+    },
+    {
+      "id": 12,
+      "name": "Zolpan",
+      "address": "",
+      "city": "Paris",
+      "category": "paint",
+      "lat": 48.8353393,
+      "lon": 2.3093936,
+      "demand": 19,
+      "ready": 476,
+      "due": 938,
+      "service": 25,
+      "osm": {
+        "type": "node",
+        "id": 9508353396
+      }
+    },
+    {
+      "id": 13,
+      "name": "Chicken Corner",
+      "address": "92 Rue Paul Vaillant Couturier, 94140",
+      "city": "Paris",
+      "category": "restaurant",
+      "lat": 48.8102235,
+      "lon": 2.4168983,
+      "demand": 19,
+      "ready": 499,
+      "due": 988,
+      "service": 25,
+      "osm": {
+        "type": "node",
+        "id": 6445606749
+      }
+    },
+    {
+      "id": 14,
+      "name": "Bio C' Bon",
+      "address": "",
+      "city": "Paris",
+      "category": "supermarket",
+      "lat": 48.8665733,
+      "lon": 2.2854699,
+      "demand": 14,
+      "ready": 508,
+      "due": 1002,
+      "service": 23,
+      "osm": {
+        "type": "node",
+        "id": 6070833836
+      }
+    },
+    {
+      "id": 15,
+      "name": "O Berthier",
+      "address": "",
+      "city": "Paris",
+      "category": "fast_food",
+      "lat": 48.8940366,
+      "lon": 2.3134193,
+      "demand": 18,
+      "ready": 494,
+      "due": 976,
+      "service": 10,
+      "osm": {
+        "type": "node",
+        "id": 6544798452
+      }
+    },
+    {
+      "id": 16,
+      "name": "Esso Express",
+      "address": "",
+      "city": "Paris",
+      "category": "fuel",
+      "lat": 48.8177305,
+      "lon": 2.27693,
+      "demand": 10,
+      "ready": 475,
+      "due": 868,
+      "service": 13,
+      "osm": {
+        "type": "way",
+        "id": 100840943
+      }
+    },
+    {
+      "id": 17,
+      "name": "Le jasmin",
+      "address": "",
+      "city": "Paris",
+      "category": "restaurant",
+      "lat": 48.9176245,
+      "lon": 2.3747027,
+      "demand": 17,
+      "ready": 471,
+      "due": 940,
+      "service": 14,
+      "osm": {
+        "type": "node",
+        "id": 12118468321
+      }
+    },
+    {
+      "id": 18,
+      "name": "Imperial House",
+      "address": "",
+      "city": "Paris",
+      "category": "restaurant",
+      "lat": 48.8549034,
+      "lon": 2.3613197,
+      "demand": 11,
+      "ready": 495,
+      "due": 913,
+      "service": 24,
+      "osm": {
+        "type": "node",
+        "id": 2708792649
+      }
+    },
+    {
+      "id": 19,
+      "name": "Good Time",
+      "address": "",
+      "city": "Paris",
+      "category": "fast_food",
+      "lat": 48.8162741,
+      "lon": 2.3408852,
+      "demand": 14,
+      "ready": 471,
+      "due": 970,
+      "service": 22,
+      "osm": {
+        "type": "node",
+        "id": 5326025813
+      }
+    },
+    {
+      "id": 20,
+      "name": "École maternelle",
+      "address": "",
+      "city": "Paris",
+      "category": "school",
+      "lat": 48.8365859,
+      "lon": 2.4088068,
+      "demand": 20,
+      "ready": 460,
+      "due": 960,
+      "service": 25,
+      "osm": {
+        "type": "way",
+        "id": 181727224
+      }
+    },
+    {
+      "id": 21,
+      "name": "Auto Top",
+      "address": "101 Avenue du Général Leclerc, 93500",
+      "city": "Paris",
+      "category": "car",
+      "lat": 48.9004454,
+      "lon": 2.4105333,
+      "demand": 14,
+      "ready": 482,
+      "due": 893,
+      "service": 18,
+      "osm": {
+        "type": "node",
+        "id": 4030143516
+      }
+    },
+    {
+      "id": 22,
+      "name": "École maternelle Denis Diderot",
+      "address": "",
+      "city": "Paris",
+      "category": "school",
+      "lat": 48.8625214,
+      "lon": 2.4448964,
+      "demand": 20,
+      "ready": 492,
+      "due": 890,
+      "service": 24,
+      "osm": {
+        "type": "node",
+        "id": 3540871329
+      }
+    },
+    {
+      "id": 23,
+      "name": "Babalou Pasta",
+      "address": "6 Rue Lamarck",
+      "city": "Paris",
+      "category": "restaurant",
+      "lat": 48.8865965,
+      "lon": 2.3443605,
+      "demand": 15,
+      "ready": 495,
+      "due": 980,
+      "service": 16,
+      "osm": {
+        "type": "node",
+        "id": 12763108464
+      }
+    },
+    {
+      "id": 24,
+      "name": "Resolve Stroke",
+      "address": "",
+      "city": "Paris",
+      "category": "company",
+      "lat": 48.8375258,
+      "lon": 2.3412828,
+      "demand": 17,
+      "ready": 505,
+      "due": 989,
+      "service": 25,
+      "osm": {
+        "type": "node",
+        "id": 12349022066
+      }
+    },
+    {
+      "id": 25,
+      "name": "Club Odinet",
+      "address": "",
+      "city": "Nancy",
+      "category": "community_centre",
+      "lat": 48.7082125,
+      "lon": 6.1814385,
+      "demand": 10,
+      "ready": 377,
+      "due": 906,
+      "service": 19,
+      "osm": {
+        "type": "way",
+        "id": 111130645
+      }
+    },
+    {
+      "id": 26,
+      "name": "Leroy Merlin",
+      "address": "",
+      "city": "Nancy",
+      "category": "doityourself",
+      "lat": 48.6354128,
+      "lon": 6.1842037,
+      "demand": 17,
+      "ready": 374,
+      "due": 759,
+      "service": 18,
+      "osm": {
+        "type": "way",
+        "id": 320865649
+      }
+    },
+    {
+      "id": 27,
+      "name": "La Ferme des Fruitiers",
+      "address": "",
+      "city": "Nancy",
+      "category": "greengrocer",
+      "lat": 48.7205518,
+      "lon": 6.269156,
+      "demand": 16,
+      "ready": 389,
+      "due": 795,
+      "service": 25,
+      "osm": {
+        "type": "way",
+        "id": 1257194449
+      }
+    },
+    {
+      "id": 28,
+      "name": "École élémentaire Albert Camus",
+      "address": "",
+      "city": "Nancy",
+      "category": "school",
+      "lat": 48.659068,
+      "lon": 6.1105655,
+      "demand": 17,
+      "ready": 380,
+      "due": 808,
+      "service": 21,
+      "osm": {
+        "type": "way",
+        "id": 37884270
+      }
+    },
+    {
+      "id": 29,
+      "name": "Centre de Loisirs d'Art-sur-Meurthe",
+      "address": "",
+      "city": "Nancy",
+      "category": "community_centre",
+      "lat": 48.6629774,
+      "lon": 6.2512323,
+      "demand": 12,
+      "ready": 366,
+      "due": 831,
+      "service": 24,
+      "osm": {
+        "type": "way",
+        "id": 321906143
+      }
+    },
+    {
+      "id": 30,
+      "name": "Salle Guingot",
+      "address": "",
+      "city": "Nancy",
+      "category": "library",
+      "lat": 48.7532765,
+      "lon": 6.1636115,
+      "demand": 17,
+      "ready": 362,
+      "due": 722,
+      "service": 12,
+      "osm": {
+        "type": "way",
+        "id": 130675598
+      }
+    },
+    {
+      "id": 31,
+      "name": "Maximo",
+      "address": "",
+      "city": "Nancy",
+      "category": "supermarket",
+      "lat": 48.6998386,
+      "lon": 6.1210389,
+      "demand": 13,
+      "ready": 385,
+      "due": 795,
+      "service": 13,
+      "osm": {
+        "type": "way",
+        "id": 524233555
+      }
+    },
+    {
+      "id": 32,
+      "name": "École Les Vignottes",
+      "address": "",
+      "city": "Nancy",
+      "category": "school",
+      "lat": 48.7479487,
+      "lon": 6.2243979,
+      "demand": 14,
+      "ready": 361,
+      "due": 860,
+      "service": 21,
+      "osm": {
+        "type": "way",
+        "id": 360033353
+      }
+    },
+    {
+      "id": 33,
+      "name": "Aux Saveurs Lyonnaises et Périgourdines",
+      "address": "",
+      "city": "Nancy",
+      "category": "butcher",
+      "lat": 48.6715408,
+      "lon": 6.1664982,
+      "demand": 20,
+      "ready": 360,
+      "due": 800,
+      "service": 25,
+      "osm": {
+        "type": "node",
+        "id": 7354743038
+      }
+    },
+    {
+      "id": 34,
+      "name": "Les Têtes Brûlées",
+      "address": "Avenue Nelson Mandela, 54510",
+      "city": "Nancy",
+      "category": "restaurant",
+      "lat": 48.691932,
+      "lon": 6.2258544,
+      "demand": 18,
+      "ready": 383,
+      "due": 777,
+      "service": 17,
+      "osm": {
+        "type": "node",
+        "id": 5552595608
+      }
+    },
+    {
+      "id": 35,
+      "name": "Ligue Lorraine de Football",
+      "address": "1",
+      "city": "Nancy",
+      "category": "community_centre",
+      "lat": 48.724076,
+      "lon": 6.146316,
+      "demand": 19,
+      "ready": 378,
+      "due": 771,
+      "service": 19,
+      "osm": {
+        "type": "way",
+        "id": 116580804
+      }
+    },
+    {
+      "id": 36,
+      "name": "Laboratoire d'Archéologie des Métaux",
+      "address": "",
+      "city": "Nancy",
+      "category": "research",
+      "lat": 48.6667869,
+      "lon": 6.2090277,
+      "demand": 12,
+      "ready": 373,
+      "due": 904,
+      "service": 14,
+      "osm": {
+        "type": "node",
+        "id": 14026103152
+      }
+    },
+    {
+      "id": 37,
+      "name": "Fédération départementale des chasseurs de la Moselle",
+      "address": "",
+      "city": "Metz",
+      "category": "association",
+      "lat": 49.0924909,
+      "lon": 6.2400466,
+      "demand": 16,
+      "ready": 369,
+      "due": 858,
+      "service": 22,
+      "osm": {
+        "type": "node",
+        "id": 14281364536
+      }
+    },
+    {
+      "id": 38,
+      "name": "Le FilaJoe",
+      "address": "",
+      "city": "Metz",
+      "category": "restaurant",
+      "lat": 49.1588351,
+      "lon": 6.1057685,
+      "demand": 16,
+      "ready": 376,
+      "due": 786,
+      "service": 10,
+      "osm": {
+        "type": "node",
+        "id": 1738663991
+      }
+    },
+    {
+      "id": 39,
+      "name": "Hyundai",
+      "address": "",
+      "city": "Metz",
+      "category": "car",
+      "lat": 49.0730544,
+      "lon": 6.1122777,
+      "demand": 10,
+      "ready": 372,
+      "due": 750,
+      "service": 21,
+      "osm": {
+        "type": "node",
+        "id": 9045401039
+      }
+    },
+    {
+      "id": 40,
+      "name": "Aux 3 capitaines",
+      "address": "",
+      "city": "Metz",
+      "category": "restaurant",
+      "lat": 49.1748788,
+      "lon": 6.2123169,
+      "demand": 10,
+      "ready": 371,
+      "due": 737,
+      "service": 25,
+      "osm": {
+        "type": "node",
+        "id": 13581977416
+      }
+    },
+    {
+      "id": 41,
+      "name": "Restaurant universitaire Paul Verlaine",
+      "address": "",
+      "city": "Metz",
+      "category": "restaurant",
+      "lat": 49.1188168,
+      "lon": 6.1644102,
+      "demand": 17,
+      "ready": 381,
+      "due": 818,
+      "service": 20,
+      "osm": {
+        "type": "way",
+        "id": 35547299
+      }
+    },
+    {
+      "id": 42,
+      "name": "Centre d'examen du permis de conduire",
+      "address": "",
+      "city": "Metz",
+      "category": "driving_school",
+      "lat": 49.0569901,
+      "lon": 6.1861436,
+      "demand": 19,
+      "ready": 375,
+      "due": 854,
+      "service": 15,
+      "osm": {
+        "type": "node",
+        "id": 8367698776
+      }
+    },
+    {
+      "id": 43,
+      "name": "École maternelle La Souris Verte",
+      "address": "",
+      "city": "Metz",
+      "category": "school",
+      "lat": 49.115094,
+      "lon": 6.0840355,
+      "demand": 13,
+      "ready": 378,
+      "due": 871,
+      "service": 23,
+      "osm": {
+        "type": "way",
+        "id": 137522909
+      }
+    },
+    {
+      "id": 44,
+      "name": "Design Exterior",
+      "address": "",
+      "city": "Metz",
+      "category": "company",
+      "lat": 49.127226,
+      "lon": 6.2664202,
+      "demand": 19,
+      "ready": 370,
+      "due": 847,
+      "service": 17,
+      "osm": {
+        "type": "way",
+        "id": 231251446
+      }
+    },
+    {
+      "id": 45,
+      "name": "Jean Lefèbvre",
+      "address": "",
+      "city": "Metz",
+      "category": "company",
+      "lat": 49.1804647,
+      "lon": 6.1526535,
+      "demand": 18,
+      "ready": 382,
+      "due": 759,
+      "service": 22,
+      "osm": {
+        "type": "node",
+        "id": 13111027632
+      }
+    },
+    {
+      "id": 46,
+      "name": "Pharmacie des Hauts de Vallières",
+      "address": "",
+      "city": "Metz",
+      "category": "pharmacy",
+      "lat": 49.1356313,
+      "lon": 6.213016,
+      "demand": 12,
+      "ready": 366,
+      "due": 891,
+      "service": 11,
+      "osm": {
+        "type": "node",
+        "id": 4234672597
+      }
+    },
+    {
+      "id": 47,
+      "name": "Palais Universitaire",
+      "address": "",
+      "city": "Strasbourg",
+      "category": "university",
+      "lat": 48.5848129,
+      "lon": 7.7624991,
+      "demand": 17,
+      "ready": 389,
+      "due": 761,
+      "service": 16,
+      "osm": {
+        "type": "relation",
+        "id": 368604
+      }
+    },
+    {
+      "id": 48,
+      "name": "Jules",
+      "address": "",
+      "city": "Strasbourg",
+      "category": "clothes",
+      "lat": 48.5237304,
+      "lon": 7.694311,
+      "demand": 10,
+      "ready": 382,
+      "due": 915,
+      "service": 14,
+      "osm": {
+        "type": "node",
+        "id": 12441877220
+      }
+    },
+    {
+      "id": 49,
+      "name": "Kroely - Mercedes Benz utilitaires et poids lourds",
+      "address": "",
+      "city": "Strasbourg",
+      "category": "car_repair",
+      "lat": 48.5937988,
+      "lon": 7.6652715,
+      "demand": 18,
+      "ready": 376,
+      "due": 791,
+      "service": 14,
+      "osm": {
+        "type": "way",
+        "id": 103103568
+      }
+    },
+    {
+      "id": 50,
+      "name": "Renault Tabor",
+      "address": "2 Am Sundheimer Fort, 77694",
+      "city": "Strasbourg",
+      "category": "car",
+      "lat": 48.5468377,
+      "lon": 7.8378262,
+      "demand": 16,
+      "ready": 381,
+      "due": 788,
+      "service": 18,
+      "osm": {
+        "type": "node",
+        "id": 1259823092
+      }
+    },
+    {
+      "id": 51,
+      "name": "Aixam Automobile",
+      "address": "5 Rue des Tuileries, 67460",
+      "city": "Strasbourg",
+      "category": "car",
+      "lat": 48.6340981,
+      "lon": 7.7267962,
+      "demand": 11,
+      "ready": 377,
+      "due": 843,
+      "service": 22,
+      "osm": {
+        "type": "way",
+        "id": 59039164
+      }
+    },
+    {
+      "id": 52,
+      "name": "AXA",
+      "address": "1a Raiffeisenstraße, 77694",
+      "city": "Strasbourg",
+      "category": "insurance",
+      "lat": 48.6048972,
+      "lon": 7.834558,
+      "demand": 12,
+      "ready": 365,
+      "due": 813,
+      "service": 18,
+      "osm": {
+        "type": "node",
+        "id": 5851231386
+      }
+    },
+    {
+      "id": 53,
+      "name": "Pharmacie Stéphanie",
+      "address": "20 Rue Stéphanie, 67100",
+      "city": "Strasbourg",
+      "category": "pharmacy",
+      "lat": 48.5299026,
+      "lon": 7.7683532,
+      "demand": 14,
+      "ready": 375,
+      "due": 841,
+      "service": 24,
+      "osm": {
+        "type": "node",
+        "id": 623261090
+      }
+    },
+    {
+      "id": 54,
+      "name": "Tabac presse",
+      "address": "27 Rue d'Ostwald, 67200",
+      "city": "Strasbourg",
+      "category": "tobacco",
+      "lat": 48.5631155,
+      "lon": 7.7096777,
+      "demand": 17,
+      "ready": 370,
+      "due": 862,
+      "service": 24,
+      "osm": {
+        "type": "node",
+        "id": 11099964296
+      }
+    },
+    {
+      "id": 55,
+      "name": "Club d'Activités des Maîtres-Nageurs-Sauveteurs",
+      "address": "",
+      "city": "Strasbourg",
+      "category": "association",
+      "lat": 48.6283639,
+      "lon": 7.7814211,
+      "demand": 14,
+      "ready": 376,
+      "due": 870,
+      "service": 13,
+      "osm": {
+        "type": "node",
+        "id": 6594201413
+      }
+    },
+    {
+      "id": 56,
+      "name": "Pharmacie de la Cité",
+      "address": "142 Route de Mittelhausbergen, 67200",
+      "city": "Strasbourg",
+      "category": "pharmacy",
+      "lat": 48.597576,
+      "lon": 7.7153746,
+      "demand": 11,
+      "ready": 367,
+      "due": 728,
+      "service": 24,
+      "osm": {
+        "type": "node",
+        "id": 14061015368
+      }
+    },
+    {
+      "id": 57,
+      "name": "Optique Montessuy",
+      "address": "",
+      "city": "Lyon",
+      "category": "optician",
+      "lat": 45.7931722,
+      "lon": 4.8448165,
+      "demand": 20,
+      "ready": 553,
+      "due": 1052,
+      "service": 15,
+      "osm": {
+        "type": "node",
+        "id": 11358430876
+      }
+    },
+    {
+      "id": 58,
+      "name": "Centre hospitalier Lyon-Sud (Sainte-Eugénie)",
+      "address": "",
+      "city": "Lyon",
+      "category": "hospital",
+      "lat": 45.7037788,
+      "lon": 4.7993641,
+      "demand": 15,
+      "ready": 583,
+      "due": 983,
+      "service": 16,
+      "osm": {
+        "type": "way",
+        "id": 349606175
+      }
+    },
+    {
+      "id": 59,
+      "name": "École primaire Jean Jaurès",
+      "address": "",
+      "city": "Lyon",
+      "category": "school",
+      "lat": 45.7283672,
+      "lon": 4.9086167,
+      "demand": 18,
+      "ready": 579,
+      "due": 1010,
+      "service": 16,
+      "osm": {
+        "type": "way",
+        "id": 155512052
+      }
+    },
+    {
+      "id": 60,
+      "name": "Le Remède",
+      "address": "",
+      "city": "Lyon",
+      "category": "restaurant",
+      "lat": 45.7661874,
+      "lon": 4.7472726,
+      "demand": 14,
+      "ready": 540,
+      "due": 1044,
+      "service": 14,
+      "osm": {
+        "type": "node",
+        "id": 11549275467
+      }
+    },
+    {
+      "id": 61,
+      "name": "Groupe scolaire Anatole France",
+      "address": "",
+      "city": "Lyon",
+      "category": "school",
+      "lat": 45.7830615,
+      "lon": 4.921038,
+      "demand": 11,
+      "ready": 579,
+      "due": 1006,
+      "service": 23,
+      "osm": {
+        "type": "way",
+        "id": 280027291
+      }
+    },
+    {
+      "id": 62,
+      "name": "Espaces piscines",
+      "address": "",
+      "city": "Lyon",
+      "category": "swimming_pool",
+      "lat": 45.8115944,
+      "lon": 4.7786671,
+      "demand": 10,
+      "ready": 553,
+      "due": 1088,
+      "service": 21,
+      "osm": {
+        "type": "node",
+        "id": 11076057411
+      }
+    },
+    {
+      "id": 63,
+      "name": "Richardson",
+      "address": "",
+      "city": "Lyon",
+      "category": "bathroom_furnishing",
+      "lat": 45.7430477,
+      "lon": 4.8410151,
+      "demand": 11,
+      "ready": 576,
+      "due": 1097,
+      "service": 20,
+      "osm": {
+        "type": "node",
+        "id": 7658941898
+      }
+    },
+    {
+      "id": 64,
+      "name": "École primaire Parmentier",
+      "address": "",
+      "city": "Lyon",
+      "category": "school",
+      "lat": 45.7047008,
+      "lon": 4.8613479,
+      "demand": 14,
+      "ready": 572,
+      "due": 948,
+      "service": 20,
+      "osm": {
+        "type": "node",
+        "id": 5091680949
+      }
+    },
+    {
+      "id": 65,
+      "name": "France Travail",
+      "address": "",
+      "city": "Lyon",
+      "category": "government",
+      "lat": 45.7686114,
+      "lon": 4.801151,
+      "demand": 11,
+      "ready": 563,
+      "due": 988,
+      "service": 10,
+      "osm": {
+        "type": "node",
+        "id": 3619471353
+      }
+    },
+    {
+      "id": 66,
+      "name": "Bouillet Corner Rillieux",
+      "address": "120 Avenue du Loup Pendu",
+      "city": "Lyon",
+      "category": "chocolate",
+      "lat": 45.815201,
+      "lon": 4.8882827,
+      "demand": 16,
+      "ready": 558,
+      "due": 983,
+      "service": 10,
+      "osm": {
+        "type": "node",
+        "id": 6239626207
+      }
+    },
+    {
+      "id": 67,
+      "name": "Médiathèque",
+      "address": "Montée des Roches",
+      "city": "Lyon",
+      "category": "library",
+      "lat": 45.7334592,
+      "lon": 4.7688048,
+      "demand": 10,
+      "ready": 570,
+      "due": 990,
+      "service": 19,
+      "osm": {
+        "type": "node",
+        "id": 6123042275
+      }
+    },
+    {
+      "id": 68,
+      "name": "École Antonin Perrin",
+      "address": "",
+      "city": "Lyon",
+      "category": "school",
+      "lat": 45.7600608,
+      "lon": 4.8841744,
+      "demand": 18,
+      "ready": 560,
+      "due": 1095,
+      "service": 21,
+      "osm": {
+        "type": "way",
+        "id": 912782177
+      }
+    },
+    {
+      "id": 69,
+      "name": "Institut de, Langues et Savoirs",
+      "address": "",
+      "city": "Lille",
+      "category": "educational_institution",
+      "lat": 50.6322981,
+      "lon": 3.051785,
+      "demand": 20,
+      "ready": 522,
+      "due": 1042,
+      "service": 11,
+      "osm": {
+        "type": "node",
+        "id": 7630364210
+      }
+    },
+    {
+      "id": 70,
+      "name": "Collège Arthur Rimbaud",
+      "address": "1 Rue du Chemin Vert, 59493",
+      "city": "Lille",
+      "category": "school",
+      "lat": 50.6186655,
+      "lon": 3.1561829,
+      "demand": 13,
+      "ready": 510,
+      "due": 1025,
+      "service": 24,
+      "osm": {
+        "type": "way",
+        "id": 79492851
+      }
+    },
+    {
+      "id": 71,
+      "name": "Aramisauto Lille",
+      "address": "7, 59113",
+      "city": "Lille",
+      "category": "car",
+      "lat": 50.566913,
+      "lon": 3.0434785,
+      "demand": 20,
+      "ready": 521,
+      "due": 911,
+      "service": 21,
+      "osm": {
+        "type": "way",
+        "id": 125558512
+      }
+    },
+    {
+      "id": 72,
+      "name": "La Famille",
+      "address": "162 Avenue de la Marne",
+      "city": "Lille",
+      "category": "fast_food",
+      "lat": 50.680388,
+      "lon": 3.1143472,
+      "demand": 16,
+      "ready": 522,
+      "due": 946,
+      "service": 19,
+      "osm": {
+        "type": "node",
+        "id": 9001176042
+      }
+    },
+    {
+      "id": 73,
+      "name": "Salle André Bertrand",
+      "address": "",
+      "city": "Lille",
+      "category": "community_centre",
+      "lat": 50.613502,
+      "lon": 2.9614715,
+      "demand": 10,
+      "ready": 515,
+      "due": 986,
+      "service": 19,
+      "osm": {
+        "type": "way",
+        "id": 101615331
+      }
+    },
+    {
+      "id": 74,
+      "name": "Bibliothèque de Lompret",
+      "address": "",
+      "city": "Lille",
+      "category": "library",
+      "lat": 50.6708637,
+      "lon": 2.9895611,
+      "demand": 11,
+      "ready": 505,
+      "due": 939,
+      "service": 19,
+      "osm": {
+        "type": "node",
+        "id": 11740950565
+      }
+    },
+    {
+      "id": 75,
+      "name": "Euromaster Véhicules Légers",
+      "address": "Rue de la Croix Bougard",
+      "city": "Lille",
+      "category": "car_repair",
+      "lat": 50.5806908,
+      "lon": 3.1135338,
+      "demand": 10,
+      "ready": 508,
+      "due": 1017,
+      "service": 20,
+      "osm": {
+        "type": "node",
+        "id": 13114157362
+      }
+    },
+    {
+      "id": 76,
+      "name": "Match",
+      "address": "",
+      "city": "Lille",
+      "category": "supermarket",
+      "lat": 50.6920736,
+      "lon": 3.0515668,
+      "demand": 11,
+      "ready": 542,
+      "due": 916,
+      "service": 15,
+      "osm": {
+        "type": "way",
+        "id": 191566334
+      }
+    },
+    {
+      "id": 77,
+      "name": "Amandine Boulangerie",
+      "address": "",
+      "city": "Bordeaux",
+      "category": "bakery",
+      "lat": 44.8305333,
+      "lon": -0.5674525,
+      "demand": 12,
+      "ready": 927,
+      "due": 1296,
+      "service": 21,
+      "osm": {
+        "type": "node",
+        "id": 12435625249
+      }
+    },
+    {
+      "id": 78,
+      "name": "ECF",
+      "address": "",
+      "city": "Bordeaux",
+      "category": "driving_school",
+      "lat": 44.8712673,
+      "lon": -0.6568622,
+      "demand": 14,
+      "ready": 915,
+      "due": 1442,
+      "service": 10,
+      "osm": {
+        "type": "way",
+        "id": 323720599
+      }
+    },
+    {
+      "id": 79,
+      "name": "Girondines Bordeaux",
+      "address": "",
+      "city": "Bordeaux",
+      "category": "yes",
+      "lat": 44.8963455,
+      "lon": -0.5616697,
+      "demand": 15,
+      "ready": 916,
+      "due": 1308,
+      "service": 23,
+      "osm": {
+        "type": "node",
+        "id": 9962174421
+      }
+    },
+    {
+      "id": 80,
+      "name": "Garage Des Ombrages",
+      "address": "232 Avenue Pasteur, 33600",
+      "city": "Bordeaux",
+      "category": "car",
+      "lat": 44.802695,
+      "lon": -0.6513039,
+      "demand": 16,
+      "ready": 926,
+      "due": 1347,
+      "service": 17,
+      "osm": {
+        "type": "node",
+        "id": 9410172836
+      }
+    },
+    {
+      "id": 81,
+      "name": "Pharmacie Chambon-Combeuil",
+      "address": "",
+      "city": "Bordeaux",
+      "category": "pharmacy",
+      "lat": 44.8578137,
+      "lon": -0.4954006,
+      "demand": 10,
+      "ready": 921,
+      "due": 1419,
+      "service": 22,
+      "osm": {
+        "type": "node",
+        "id": 2327171634
+      }
+    },
+    {
+      "id": 82,
+      "name": "Direction des Routes Atlantique",
+      "address": "",
+      "city": "Bordeaux",
+      "category": "government",
+      "lat": 44.7757137,
+      "lon": -0.5583231,
+      "demand": 13,
+      "ready": 944,
+      "due": 1341,
+      "service": 10,
+      "osm": {
+        "type": "way",
+        "id": 961292773
+      }
+    },
+    {
+      "id": 83,
+      "name": "Stop Fruits 33",
+      "address": "1 Chemin de la Matte, 33270",
+      "city": "Bordeaux",
+      "category": "greengrocer",
+      "lat": 44.805063,
+      "lon": -0.504163,
+      "demand": 17,
+      "ready": 936,
+      "due": 1434,
+      "service": 23,
+      "osm": {
+        "type": "way",
+        "id": 187169533
+      }
+    },
+    {
+      "id": 84,
+      "name": "Chanteur",
+      "address": "4 Rue Émile Zola",
+      "city": "Bordeaux",
+      "category": "hearing_aids",
+      "lat": 44.8647745,
+      "lon": -0.599503,
+      "demand": 12,
+      "ready": 944,
+      "due": 1384,
+      "service": 12,
+      "osm": {
+        "type": "way",
+        "id": 154701100
+      }
+    },
+    {
+      "id": 85,
+      "name": "Groupe scolaire public Chêne d'Aron",
+      "address": "",
+      "city": "Nantes",
+      "category": "school",
+      "lat": 47.2121707,
+      "lon": -1.5606376,
+      "demand": 20,
+      "ready": 859,
+      "due": 1228,
+      "service": 18,
+      "osm": {
+        "type": "way",
+        "id": 652348467
+      }
+    },
+    {
+      "id": 86,
+      "name": "ALBATROS INFORMATIQUE SARL",
+      "address": "10A Rue de la Métallurgie, 44470",
+      "city": "Nantes",
+      "category": "it",
+      "lat": 47.266801,
+      "lon": -1.4947296,
+      "demand": 15,
+      "ready": 844,
+      "due": 1337,
+      "service": 11,
+      "osm": {
+        "type": "node",
+        "id": 6677005413
+      }
+    },
+    {
+      "id": 87,
+      "name": "Miniplanes",
+      "address": "1 Rue Louis Pasteur, 44119",
+      "city": "Nantes",
+      "category": "model",
+      "lat": 47.2756553,
+      "lon": -1.5922535,
+      "demand": 20,
+      "ready": 837,
+      "due": 1199,
+      "service": 17,
+      "osm": {
+        "type": "node",
+        "id": 2826719861
+      }
+    },
+    {
+      "id": 88,
+      "name": "Vertbaudet",
+      "address": "Rue de Terre Adélie, 44230",
+      "city": "Nantes",
+      "category": "clothes",
+      "lat": 47.1886374,
+      "lon": -1.4722008,
+      "demand": 20,
+      "ready": 817,
+      "due": 1233,
+      "service": 14,
+      "osm": {
+        "type": "node",
+        "id": 8197396476
+      }
+    },
+    {
+      "id": 89,
+      "name": "Fourrière de Nantes",
+      "address": "",
+      "city": "Nantes",
+      "category": "company",
+      "lat": 47.2274796,
+      "lon": -1.6449599,
+      "demand": 13,
+      "ready": 856,
+      "due": 1308,
+      "service": 18,
+      "osm": {
+        "type": "node",
+        "id": 9596015803
+      }
+    },
+    {
+      "id": 90,
+      "name": "BMW",
+      "address": "Boulevard Léonard de Vinci, 44400",
+      "city": "Nantes",
+      "category": "car",
+      "lat": 47.1555245,
+      "lon": -1.5449935,
+      "demand": 15,
+      "ready": 860,
+      "due": 1271,
+      "service": 21,
+      "osm": {
+        "type": "way",
+        "id": 330084070
+      }
+    },
+    {
+      "id": 91,
+      "name": "Elizabeth Institut de beauté",
+      "address": "",
+      "city": "Toulouse",
+      "category": "beauty",
+      "lat": 43.5980875,
+      "lon": 1.455811,
+      "demand": 17,
+      "ready": 909,
+      "due": 1409,
+      "service": 19,
+      "osm": {
+        "type": "node",
+        "id": 6053487225
+      }
+    },
+    {
+      "id": 92,
+      "name": "CRESTEY SINTES",
+      "address": "",
+      "city": "Toulouse",
+      "category": "company",
+      "lat": 43.6487089,
+      "lon": 1.3823264,
+      "demand": 16,
+      "ready": 926,
+      "due": 1446,
+      "service": 14,
+      "osm": {
+        "type": "node",
+        "id": 7252577848
+      }
+    },
+    {
+      "id": 93,
+      "name": "Market 26 - Épicerie casher",
+      "address": "205 Chemin du Ramelet Moundi, 31100",
+      "city": "Toulouse",
+      "category": "grocery",
+      "lat": 43.580538,
+      "lon": 1.3641195,
+      "demand": 15,
+      "ready": 938,
+      "due": 1299,
+      "service": 23,
+      "osm": {
+        "type": "node",
+        "id": 13399626101
+      }
+    },
+    {
+      "id": 94,
+      "name": "Plastimage",
+      "address": "",
+      "city": "Toulouse",
+      "category": "yes",
+      "lat": 43.6624575,
+      "lon": 1.4704201,
+      "demand": 11,
+      "ready": 945,
+      "due": 1349,
+      "service": 19,
+      "osm": {
+        "type": "node",
+        "id": 13895856399
+      }
+    },
+    {
+      "id": 95,
+      "name": "École maternelle publique Saint-Exupéry",
+      "address": "",
+      "city": "Toulouse",
+      "category": "school",
+      "lat": 43.5435684,
+      "lon": 1.4647105,
+      "demand": 12,
+      "ready": 934,
+      "due": 1361,
+      "service": 13,
+      "osm": {
+        "type": "way",
+        "id": 162467191
+      }
+    },
+    {
+      "id": 96,
+      "name": "Clinique d’Aufréry",
+      "address": "",
+      "city": "Toulouse",
+      "category": "hospital",
+      "lat": 43.6111332,
+      "lon": 1.5277011,
+      "demand": 19,
+      "ready": 946,
+      "due": 1361,
+      "service": 19,
+      "osm": {
+        "type": "way",
+        "id": 746623094
+      }
+    },
+    {
+      "id": 97,
+      "name": "Lapeyre",
+      "address": "",
+      "city": "Marseille",
+      "category": "kitchen",
+      "lat": 43.2813351,
+      "lon": 5.3859214,
+      "demand": 16,
+      "ready": 886,
+      "due": 1346,
+      "service": 15,
+      "osm": {
+        "type": "node",
+        "id": 11938964832
+      }
+    },
+    {
+      "id": 98,
+      "name": "CRISA",
+      "address": "",
+      "city": "Marseille",
+      "category": "community_centre",
+      "lat": 43.3562706,
+      "lon": 5.3424881,
+      "demand": 12,
+      "ready": 821,
+      "due": 1202,
+      "service": 22,
+      "osm": {
+        "type": "way",
+        "id": 69626165
+      }
+    },
+    {
+      "id": 99,
+      "name": "Restaurant d'entreprise RTM",
+      "address": "",
+      "city": "Marseille",
+      "category": "fast_food",
+      "lat": 43.339757,
+      "lon": 5.4309105,
+      "demand": 14,
+      "ready": 847,
+      "due": 1273,
+      "service": 11,
+      "osm": {
+        "type": "way",
+        "id": 112852914
+      }
+    },
+    {
+      "id": 100,
+      "name": "Dilatante",
+      "address": "",
+      "city": "Marseille",
+      "category": "restaurant",
+      "lat": 43.2789052,
+      "lon": 5.3037137,
+      "demand": 12,
+      "ready": 843,
+      "due": 1251,
+      "service": 19,
+      "osm": {
+        "type": "node",
+        "id": 5059169223
+      }
+    }
+  ]
+}
