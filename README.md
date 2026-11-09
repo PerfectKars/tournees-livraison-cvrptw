@@ -28,4 +28,4 @@ Deux terminaux :
 cd backend  && .venv/bin/uvicorn api:app --port 8000
 cd frontend && npm install && npm run dev       # http://localhost:5173
 ```
-Le front appelle `/api/instance`, `/api/optimize` et `/api/routes/geometry`. Les tournées sont calculées par le solveur Julia, sauf le mode `france` (matrice routière OSRM) qui utilise l'ALNS Python de `backend/delivery/alns.py`. Le tracé des routes sur la carte demande une connexion internet (serveur public OSRM).
+Le front appelle `/api/instance`, `/api/optimize` et `/api/routes/geometry`. Les tournées sont calculées par le solveur Julia. Le mode `france` lui fournit la matrice routière OSRM (fichier `.matrix`, durées de trajet) ; les autres modes restent à vol d'oiseau. Le tracé des routes sur la carte demande une connexion internet (serveur public OSRM).

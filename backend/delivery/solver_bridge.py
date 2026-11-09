@@ -4,9 +4,11 @@ Le front appelle POST /api/optimize et attend un dictionnaire `resultats`
 (routes, route_details, cost, ...). Cette fonction garde exactement ce format
 mais fait calculer les tournées par le solveur Julia.
 
-Cas particulier : une instance avec matrice routière OSRM (mode 'france') ne
-peut pas passer par Julia, qui ne connaît que les distances euclidiennes.
-Elle reste traitée par l'ALNS Python d'origine (alns.py).
+Instance avec matrice routière OSRM (mode 'france') : la matrice des durées
+est écrite dans <instance>.matrix, que le solveur Julia lit à la place des
+distances euclidiennes. Le solveur minimise alors les durées de trajet (une
+seule matrice) ; les kilomètres affichés sont recalculés ensuite avec la
+matrice OSRM. Sans matrice, le solveur travaille à vol d'oiseau comme avant.
 """
 import shutil
 import tempfile
@@ -14,23 +16,20 @@ import time
 from pathlib import Path
 
 from julia_runner import UN_SEUL_CALCUL, lancer_julia
-from sol_to_json import read_solution, write_solomon
+from sol_to_json import read_solution, write_matrix, write_solomon
 
-from .alns import prepare_instance, run_alns as run_alns_python, summarize_route
+from .alns import prepare_instance, summarize_route
 
 ITERATIONS_JULIA = 5000  # par chaîne ; le front envoie des valeurs prévues pour le Python
 CHAINES = 4
 
 
 def run_alns(instance, iterations=500, removal_rate=0.15, seed=None):
-    if instance.get("travel_data"):
-        return run_alns_python(instance=instance, iterations=iterations,
-                               removal_rate=removal_rate, seed=seed)
     return run_julia(instance, seed if seed is not None else 42)
 
 
 def run_julia(instance, seed):
-    customers, depot, capacity, vehicle_count, _ = prepare_instance(instance)
+    customers, depot, capacity, vehicle_count, travel_data = prepare_instance(instance)
 
     # Le solveur veut des ids consécutifs 0..n (0 = dépôt) : on renumérote
     # les clients dans l'ordre et on garde la correspondance pour le retour.
@@ -53,6 +52,10 @@ def run_julia(instance, seed):
     try:
         fichier = work / "instance.txt"
         write_solomon(inst, fichier)
+        if travel_data:
+            # Lignes dans l'ordre des ids du solveur : dépôt, puis clients.
+            write_matrix(travel_data["duration_min"], [depot["id"], *ids],
+                         fichier.with_suffix(".matrix"))
         t0 = time.time()
         with UN_SEUL_CALCUL:
             sol = lancer_julia(work, fichier, ITERATIONS_JULIA, CHAINES, seed)
@@ -64,7 +67,7 @@ def run_julia(instance, seed):
     routes = [[ancien_id[k] for k in r] for r in routes_k]
     details = []
     for r in routes:
-        d = summarize_route(r, customers, depot, None)
+        d = summarize_route(r, customers, depot, travel_data)
         d["capacity"] = capacity
         details.append(d)
 

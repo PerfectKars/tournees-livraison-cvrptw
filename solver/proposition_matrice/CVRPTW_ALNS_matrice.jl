@@ -321,7 +321,12 @@ function remove_id!(s::Solution, id::Int, inst::Instance)
     return true
 end
 
-function validate!(s::Solution, inst::Instance)
+# limit : nombre maximal de véhicules toléré. Par défaut la limite de
+# l'instance ; la construction et la recherche utilisent parfois plus de
+# routes que la limite (voir initial_solution), seul le résultat final est
+# contrôlé strictement.
+function validate!(s::Solution, inst::Instance;
+                   limit::Int = inst.nb_vehicles)
     seen = zeros(Int, length(inst.customers))
     fill!(s.route_of, 0)
 
@@ -337,7 +342,7 @@ function validate!(s::Solution, inst::Instance)
     end
 
     return all(==(1), seen[2:end]) &&
-           vehicles(s) <= inst.nb_vehicles
+           vehicles(s) <= limit
 end
 
 # ============================================================================
@@ -711,29 +716,55 @@ end
 
 function initial_solution(inst::Instance, rng::AbstractRNG;
                           noise::Float64 = 0.0)
-    s = Solution(
-        [empty_route() for _ in 1:inst.nb_vehicles],
-        zeros(Int, length(inst.customers))
-    )
+    n = length(inst.customers) - 1
 
     # noise > 0 perturbe l'ordre d'insertion (départs différents par chaîne).
     horizon = inst.customers[1].due
-    ids = collect(1:(length(inst.customers) - 1))
+    ids = collect(1:n)
     key = [inst.customers[id + 1].due + noise * horizon * rand(rng)
            for id in ids]
     sort!(ids, by = id -> (key[id], inst.customers[id + 1].ready))
 
-    for id in ids
-        options = insertion_options(s, id, inst; full = true)
-        isempty(options) &&
-            error("Construction initiale impossible pour le client $id.")
+    # On essaie d'abord avec la limite de véhicules de l'instance. Si les
+    # fenêtres horaires empêchent cette construction simple d'y arriver, on
+    # donne temporairement des routes en plus : la recherche (objectif
+    # véhicules d'abord) ramène ensuite le nombre de véhicules sous la limite.
+    slots = inst.nb_vehicles
+    blocked = 0
 
-        _, ri, pos = options[1]
-        insert_at!(s, ri, pos, id, inst)
+    while true
+        s = Solution(
+            [empty_route() for _ in 1:slots],
+            zeros(Int, length(inst.customers))
+        )
+        blocked = 0
+
+        for id in ids
+            options = insertion_options(s, id, inst; full = true)
+
+            if isempty(options)
+                blocked = id
+                break
+            end
+
+            _, ri, pos = options[1]
+            insert_at!(s, ri, pos, id, inst)
+        end
+
+        if blocked == 0
+            validate!(s, inst; limit = slots) ||
+                error("Solution initiale non valide.")
+            slots > inst.nb_vehicles &&
+                println("Construction initiale : ", slots, " routes ",
+                        "nécessaires (limite ", inst.nb_vehicles,
+                        "), la recherche doit redescendre sous la limite.")
+            return s
+        end
+
+        slots >= n &&
+            error("Construction initiale impossible pour le client $blocked.")
+        slots = min(n, slots + max(1, inst.nb_vehicles ÷ 2))
     end
-
-    validate!(s, inst) || error("Solution initiale non valide.")
-    return s
 end
 
 # ============================================================================
@@ -954,7 +985,7 @@ function publish!(shared::SharedState, candidate::Solution,
                   chain_id::Int, iteration::Int)
     # Validation sur une copie privée avant de prendre le verrou.
     checked = copy_solution(candidate)
-    validate!(checked, inst) ||
+    validate!(checked, inst; limit = length(checked.routes)) ||
         error("Solution invalide produite par la chaîne $chain_id.")
 
     lock(shared.mutex) do
@@ -984,7 +1015,8 @@ function publish!(shared::SharedState, candidate::Solution,
         end
 
         # Arrêt sur gap uniquement si un seuil fini a été demandé.
-        if reference !== nothing && isfinite(target_gap)
+        if reference !== nothing && isfinite(target_gap) &&
+           vehicles(checked) <= inst.nb_vehicles
             gap = distance(checked) / reference - 1
 
             if gap <= target_gap + 1e-12
@@ -1329,6 +1361,11 @@ function solve_parallel(instance_path::String;
         candidate
     end
 
+    vehicles(final) <= inst.nb_vehicles ||
+        error("Limite de véhicules dépassée : ", vehicles(final),
+              " utilisés pour ", inst.nb_vehicles, " autorisés. ",
+              "Aucune solution sous la limite n'a été trouvée ",
+              "(augmentez les itérations ou la limite).")
     validate!(final, inst) || error("La solution finale est invalide.")
     write_solution(path, final)
 
