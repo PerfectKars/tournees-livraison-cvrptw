@@ -451,8 +451,23 @@ end
 function route_option(r::Route, id::Int, inst::Instance)
     best_delta = Inf
     best_pos = 0
+    c = inst.customers[id + 1]
+    n = length(r.customers)
 
-    for pos in 1:(length(r.customers) + 1)
+    # Élagage exact (même résultat qu'un balayage complet) :
+    # - latest est croissant : tant que latest[pos] < ready + service du
+    #   client, l'insertion avant pos est impossible ;
+    # - earliest + service est croissant : dès que le départ du
+    #   prédécesseur dépasse l'échéance du client, tout le reste l'est aussi.
+    first_pos = searchsortedfirst(r.latest, c.ready + c.service - 2EPS)
+
+    for pos in first_pos:(n + 1)
+        if pos > 1
+            prev = r.customers[pos - 1]
+            r.earliest[pos - 1] + inst.customers[prev + 1].service >
+                c.due + EPS && break
+        end
+
         can_insert(r, pos, id, inst) || continue
         delta = insertion_delta(r, pos, id, inst)
 
@@ -506,6 +521,89 @@ function insertion_options(s::Solution, id::Int, inst::Instance;
     return options
 end
 
+# Même résultat que insertion_options (hors mode full), mais réutilise le
+# résultat de route_option tant que la route n'a pas changé : versions[ri]
+# est incrémenté à chaque insertion dans la route ri, et le cache
+# (c_ver, c_pos, c_delta) est indexé par (emplacement du client, route).
+function regret_options(s::Solution, id::Int, slot::Int, inst::Instance,
+                        allow_empty::Bool, versions::Vector{Int},
+                        c_ver::Matrix{Int}, c_pos::Matrix{Int},
+                        c_delta::Matrix{Float64},
+                        seen::Vector{Int}, stamp::Int, cands::Vector{Int};
+                        opening_penalty::Float64 = 1000.0)
+    ncols = size(c_ver, 2)
+    empty!(cands)
+
+    for neighbor in inst.neighbors[id + 1]
+        ri = s.route_of[neighbor + 1]
+        if ri > 0 && seen[ri] != stamp
+            seen[ri] = stamp
+            push!(cands, ri)
+        end
+    end
+
+    if allow_empty
+        ri = findfirst(r -> isempty(r.customers), s.routes)
+        if ri !== nothing && seen[ri] != stamp
+            seen[ri] = stamp
+            push!(cands, ri)
+        end
+    end
+
+    # Deux meilleurs scores seulement (sans allocation ni tri).
+    c1 = Inf; ri1 = 0; pos1 = 0
+    c2 = Inf
+    empty_tested = false
+
+    for ri in cands
+        r = s.routes[ri]
+        empty_route = isempty(r.customers)
+
+        if empty_route
+            allow_empty || continue
+            empty_tested && continue
+            empty_tested = true
+        end
+
+        if ri <= ncols
+            if c_ver[slot, ri] != versions[ri]
+                c_pos[slot, ri], c_delta[slot, ri] =
+                    route_option(r, id, inst)
+                c_ver[slot, ri] = versions[ri]
+            end
+            pos = c_pos[slot, ri]
+            delta = c_delta[slot, ri]
+        else
+            pos, delta = route_option(r, id, inst)
+        end
+
+        pos == 0 && continue
+
+        score = delta + (empty_route ? opening_penalty : 0.0)
+        if score < c1
+            c2 = c1
+            c1 = score; ri1 = ri; pos1 = pos
+        elseif score < c2
+            c2 = score
+        end
+    end
+
+    if ri1 == 0
+        options = insertion_options(
+            s, id, inst;
+            full = true,
+            allow_empty = allow_empty,
+            opening_penalty = opening_penalty
+        )
+        isempty(options) && return Inf, 0, 0, Inf
+        length(options) == 1 && return options[1][1], options[1][2],
+                                       options[1][3], Inf
+        return options[1][1], options[1][2], options[1][3], options[2][1]
+    end
+
+    return c1, ri1, pos1, c2
+end
+
 function repair!(s::Solution, removed::Vector{Int}, inst::Instance,
                  rng::AbstractRNG, method::Int;
                  allow_empty::Bool = true)
@@ -530,6 +628,19 @@ function repair!(s::Solution, removed::Vector{Int}, inst::Instance,
             insert_at!(s, ri, pos, id, inst)
         end
     else
+        # Cache des positions : seules les routes modifiées sont recalculées.
+        last_used = findlast(r -> !isempty(r.customers), s.routes)
+        last_used === nothing && (last_used = 0)
+        ncols = min(length(s.routes), last_used + 2 + length(removed))
+        c_ver = fill(-1, length(removed), ncols)
+        c_pos = zeros(Int, length(removed), ncols)
+        c_delta = zeros(Float64, length(removed), ncols)
+        versions = zeros(Int, length(s.routes))
+        slots = collect(1:length(removed))
+        seen = zeros(Int, length(s.routes))
+        stamp = 0
+        cands = Int[]
+
         while !isempty(remaining)
             chosen_index = 0
             chosen_route = 0
@@ -538,14 +649,15 @@ function repair!(s::Solution, removed::Vector{Int}, inst::Instance,
             tie_cost = Inf
 
             for (i, id) in enumerate(remaining)
-                options = insertion_options(
-                    s, id, inst; allow_empty = allow_empty
+                stamp += 1
+                first_cost, ri, pos, second_cost = regret_options(
+                    s, id, slots[i], inst, allow_empty,
+                    versions, c_ver, c_pos, c_delta, seen, stamp, cands
                 )
-                isempty(options) && return false
+                ri == 0 && return false
 
-                first_cost, ri, pos = options[1]
-                regret = length(options) == 1 ?
-                    1e12 : options[2][1] - first_cost
+                regret = second_cost == Inf ?
+                    1e12 : second_cost - first_cost
 
                 if regret > max_regret ||
                    (regret == max_regret && first_cost < tie_cost)
@@ -559,25 +671,28 @@ function repair!(s::Solution, removed::Vector{Int}, inst::Instance,
 
             id = remaining[chosen_index]
             insert_at!(s, chosen_route, chosen_pos, id, inst)
+            versions[chosen_route] += 1
             deleteat!(remaining, chosen_index)
+            deleteat!(slots, chosen_index)
         end
     end
 
     return true
 end
 
-function initial_solution(inst::Instance, rng::AbstractRNG)
+function initial_solution(inst::Instance, rng::AbstractRNG;
+                          noise::Float64 = 0.0)
     s = Solution(
         [empty_route() for _ in 1:inst.nb_vehicles],
         zeros(Int, length(inst.customers))
     )
 
+    # noise > 0 perturbe l'ordre d'insertion (départs différents par chaîne).
+    horizon = inst.customers[1].due
     ids = collect(1:(length(inst.customers) - 1))
-    sort!(ids, by = id -> (
-        inst.customers[id + 1].due,
-        inst.customers[id + 1].ready,
-        rand(rng)
-    ))
+    key = [inst.customers[id + 1].due + noise * horizon * rand(rng)
+           for id in ids]
+    sort!(ids, by = id -> (key[id], inst.customers[id + 1].ready))
 
     for id in ids
         options = insertion_options(s, id, inst; full = true)
@@ -640,19 +755,25 @@ function destroy!(s::Solution, inst::Instance, rng::AbstractRNG,
     elseif method == 4
         seed = rand(rng, ids)
         c = inst.customers[seed + 1]
-        scale_distance = max(1.0, maximum(inst.travel[seed + 1, :]))
+        scale_distance = max(1.0, maximum(@view inst.travel[seed + 1, :]))
         scale_time = max(1.0, inst.customers[1].due -
                               inst.customers[1].ready)
 
-        sort!(ids, by = id ->
-            inst.travel[seed + 1, id + 1] / scale_distance +
-            abs(inst.customers[id + 1].ready - c.ready) / scale_time
-        )
+        # Clé calculée une seule fois par client (et non à chaque comparaison).
+        key = Vector{Float64}(undef, length(inst.customers))
+        for id in ids
+            key[id + 1] =
+                inst.travel[seed + 1, id + 1] / scale_distance +
+                abs(inst.customers[id + 1].ready - c.ready) / scale_time
+        end
+
+        partialsort!(ids, 1:q, by = id -> key[id + 1])
         chosen = ids[1:q]
 
     else
         seed = rand(rng, ids)
-        pool = unique(vcat([seed], inst.neighbors[seed + 1], ids))
+        pool = unique(vcat([seed], inst.neighbors[seed + 1],
+                           shuffle!(rng, ids)))
         selected = Set{Int}()
 
         for id in pool
@@ -862,12 +983,23 @@ end
 # Une chaîne ALNS
 # ============================================================================
 
+# Somme des carrés du nombre de clients par route : plus elle est grande,
+# plus les routes sont inégales (quelques routes pleines, une très petite).
+sumsq(s::Solution) = sum(r -> abs2(length(r.customers)), s.routes)
+
 function run_chain(inst::Instance, shared::SharedState,
                    reference::Union{Nothing,Float64},
                    target_gap::Float64, path::String,
-                   max_iterations::Int, chain_id::Int, seed::Int)
+                   max_iterations::Int, chain_id::Int, seed::Int;
+                   consolidation::Float64 = 0.0,
+                   t0_factor::Float64 = 0.003,
+                   t_end::Float64 = 0.02,
+                   migration::Int = 10000,
+                   q_scale::Float64 = 1.0)
     rng = MersenneTwister(seed)
-    current = initial_solution(inst, rng)
+    current = initial_solution(
+        inst, rng; noise = chain_id == 1 ? 0.0 : 0.1
+    )
     best = copy_solution(current)
 
     publish!(
@@ -882,9 +1014,18 @@ function run_chain(inst::Instance, shared::SharedState,
     rs = zeros(2)
     ru = zeros(Int, 2)
 
-    initial_temperature = max(2.0, distance(current) * 0.003)
+    # Diagnostic (ALNS_DIAG=1) : colonnes = utilisations, réparations
+    # réussies, acceptées, nouveaux meilleurs, temps en ns.
+    diag = get(ENV, "ALNS_DIAG", "") == "1"
+    d_stat = zeros(5, 5)
+    r_stat = zeros(2, 5)
+    n_adopt = 0
+    n_restart = 0
+    n_restart_global = 0
+
+    initial_temperature = max(2.0, distance(current) * t0_factor)
     temperature = initial_temperature
-    cooling = exp(log(0.02) / max(1, max_iterations))
+    cooling = exp(log(t_end) / max(1, max_iterations))
 
     stagnation = 0
     completed = 0
@@ -895,18 +1036,18 @@ function run_chain(inst::Instance, shared::SharedState,
         completed = iteration
 
         # Migration : conserve une exploration locale entre deux échanges.
-        if iteration % 200 == 0
+        # Rare et seulement en cas de stagnation, pour garder des chaînes
+        # différentes les unes des autres.
+        if migration > 0 && iteration % migration == 0 && stagnation >= 500
             imported = import_best(shared)
 
             if imported !== nothing && better(imported, best)
                 best = copy_solution(imported)
-
-                if stagnation >= 100 || rand(rng) < 0.5
-                    current = copy_solution(imported)
-                    temperature = max(
-                        temperature, initial_temperature * 0.3
-                    )
-                end
+                current = copy_solution(imported)
+                n_adopt += 1
+                temperature = max(
+                    temperature, initial_temperature * 0.3
+                )
             end
         end
 
@@ -922,9 +1063,11 @@ function run_chain(inst::Instance, shared::SharedState,
             rand(rng, small:large) :
             rand(rng, max(2, small ÷ 2):max(3, 2small))
 
-        q = min(n, q)
+        q = min(n, max(2, round(Int, q * q_scale)))
         trial = copy_solution(current)
+        t_a = time_ns()
         removed = destroy!(trial, inst, rng, di, q)
+        t_b = time_ns()
 
         # Certaines destructions de route essaient réellement de supprimer
         # un véhicule en interdisant l'ouverture d'une route vide.
@@ -935,6 +1078,16 @@ function run_chain(inst::Instance, shared::SharedState,
                       trial, removed, inst, rng, rj;
                       allow_empty = allow_empty
                   )
+
+        t_c = time_ns()
+        d_stat[di, 1] += 1
+        d_stat[di, 5] += t_b - t_a
+        r_stat[rj, 1] += 1
+        r_stat[rj, 5] += t_c - t_b
+        if success
+            d_stat[di, 2] += 1
+            r_stat[rj, 2] += 1
+        end
 
         reward = 0.0
         stagnation += 1
@@ -953,18 +1106,30 @@ function run_chain(inst::Instance, shared::SharedState,
             elseif new_k > old_k
                 false
             else
-                delta_distance <= 0 ||
-                rand(rng) < exp(
-                    -delta_distance / max(temperature, 1e-9)
-                )
+                # Bonus de consolidation (acceptation seulement) : favorise
+                # les solutions où une route se vide, pour pouvoir la
+                # supprimer. consolidation = 0 redonne le comportement d'avant.
+                delta = delta_distance
+                if consolidation > 0
+                    delta -= consolidation * temperature *
+                             (sumsq(trial) - sumsq(current)) /
+                             (2 * (n / max(1, old_k)))
+                end
+
+                delta <= 0 ||
+                rand(rng) < exp(-delta / max(temperature, 1e-9))
             end
 
             if accepted
+                d_stat[di, 3] += 1
+                r_stat[rj, 3] += 1
                 improved_current = better(trial, current)
                 current = trial
                 reward = improved_current ? 3.0 : 0.5
 
                 if better(current, best)
+                    d_stat[di, 4] += 1
+                    r_stat[rj, 4] += 1
                     best = copy_solution(current)
                     reward = 8.0
                     stagnation = 0
@@ -996,11 +1161,42 @@ function run_chain(inst::Instance, shared::SharedState,
         end
 
         if stagnation >= 1500
-            imported = import_best(shared)
+            # Reprise sur son propre meilleur (1 fois sur 2) ou sur le
+            # meilleur global, avec un réchauffage partiel seulement.
+            imported = migration > 0 && rand(rng) < 0.5 ?
+                       import_best(shared) : nothing
+            n_restart += 1
+            imported === nothing || (n_restart_global += 1)
             current = imported === nothing ?
                 copy_solution(best) : imported
-            temperature = initial_temperature
+            temperature = max(temperature, initial_temperature * 0.3)
             stagnation = 0
+        end
+    end
+
+    if diag
+        lock(shared.mutex) do
+            println("--- Diagnostic chaîne ", chain_id, " : ",
+                    vehicles(best), " véh., distance ",
+                    round(distance(best); digits = 1), ", ",
+                    completed, " it ---")
+            println("reprises sur stagnation : ", n_restart,
+                    " (dont meilleur global : ", n_restart_global,
+                    "), migrations adoptées : ", n_adopt)
+            println("opérateur            util.  réussi   accepté  meilleur  temps_s  ms/util")
+            names_d = ["destr. aléatoire", "destr. pire", "destr. route",
+                       "destr. Shaw", "destr. string"]
+            names_r = ["rép. glouton", "rép. regret-2"]
+            for (names, st) in ((names_d, d_stat), (names_r, r_stat))
+                for k in eachindex(names)
+                    u = st[k, 1]
+                    println(rpad(names[k], 18),
+                            lpad(Int(u), 8), lpad(Int(st[k, 2]), 8),
+                            lpad(Int(st[k, 3]), 9), lpad(Int(st[k, 4]), 9),
+                            lpad(round(st[k, 5] / 1e9; digits = 2), 9),
+                            lpad(u > 0 ? round(st[k, 5] / 1e6 / u; digits = 3) : 0.0, 9))
+                end
+            end
         end
     end
 
@@ -1015,7 +1211,12 @@ function solve_parallel(instance_path::String;
                         max_iterations::Int = 50_000,
                         n_chains::Int = 4,
                         target_gap::Float64 = Inf,
-                        seed::Int = 42)
+                        seed::Int = 42,
+                        consolidation::Float64 = 0.0,
+                        t0_factor::Float64 = 0.003,
+                        t_end::Float64 = 0.02,
+                        migration::Int = 10000,
+                        q_scale::Float64 = 1.0)
     max_iterations > 0 || error("max_iterations doit être positif.")
     n_chains > 0 || error("n_chaines doit être positif.")
     !isnan(target_gap) && target_gap >= 0 ||
@@ -1069,7 +1270,10 @@ function solve_parallel(instance_path::String;
                     results[cid] = run_chain(
                         inst, shared, reference, target_gap,
                         path, max_iterations,
-                        cid, seed + 7919cid
+                        cid, seed + 7919cid;
+                        consolidation = consolidation,
+                        t0_factor = t0_factor, t_end = t_end,
+                        migration = migration, q_scale = q_scale
                     )
                 end
             end
@@ -1172,7 +1376,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
         println("Usage :")
         println(
             "julia --threads 4 --project=. -O3 CVRPTW_ALNS.jl ",
-            "<instance.txt> <max_iterations> [n_chaines] [gap_cible] [seed]"
+            "<instance.txt> <max_iterations> [n_chaines] [gap_cible] [seed] ",
+            "[consolidation] [t0_factor] [t_end] [migration] [q_scale]"
         )
         println()
         println("Exemple :")
@@ -1188,12 +1393,22 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     chains = length(ARGS) >= 3 ? parse(Int, ARGS[3]) : 4
     gap = length(ARGS) >= 4 ? parse(Float64, ARGS[4]) : Inf
     seed = length(ARGS) >= 5 ? parse(Int, ARGS[5]) : 42
+    consolidation = length(ARGS) >= 6 ? parse(Float64, ARGS[6]) : 0.0
+    t0_factor = length(ARGS) >= 7 ? parse(Float64, ARGS[7]) : 0.003
+    t_end = length(ARGS) >= 8 ? parse(Float64, ARGS[8]) : 0.02
+    migration = length(ARGS) >= 9 ? parse(Int, ARGS[9]) : 10000
+    q_scale = length(ARGS) >= 10 ? parse(Float64, ARGS[10]) : 1.0
 
     solve_parallel(
         instance_path;
         max_iterations = iterations,
         n_chains = chains,
         target_gap = gap,
-        seed = seed
+        seed = seed,
+        consolidation = consolidation,
+        t0_factor = t0_factor,
+        t_end = t_end,
+        migration = migration,
+        q_scale = q_scale
     )
 end
