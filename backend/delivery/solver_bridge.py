@@ -20,8 +20,17 @@ from sol_to_json import read_solution, write_matrix, write_solomon
 
 from .alns import prepare_instance, summarize_route
 
-ITERATIONS_JULIA = 5000  # par chaîne ; le front envoie des valeurs prévues pour le Python
 CHAINES = 4
+# Itérations par chaîne : 100 par client, entre 5 000 et 100 000 (environ 3 s
+# pour 100 clients, 25 s pour 1000). Le nombre envoyé par le front est ignoré :
+# il était prévu pour l'ancien solveur Python (5 à 500), bien trop faible pour
+# Julia. Le nombre réellement utilisé est renvoyé dans le résultat.
+ITER_PAR_CLIENT = 100
+ITER_MIN, ITER_MAX = 5_000, 100_000
+
+
+def iterations_julia(nb_clients):
+    return max(ITER_MIN, min(ITER_MAX, ITER_PAR_CLIENT * nb_clients))
 
 
 def run_alns(instance, iterations=500, removal_rate=0.15, seed=None):
@@ -51,6 +60,7 @@ def run_julia(instance, seed):
     work = Path(tempfile.mkdtemp(prefix="front_"))
     try:
         fichier = work / "instance.txt"
+        iterations = iterations_julia(len(ids))
         write_solomon(inst, fichier)
         if travel_data:
             # Lignes dans l'ordre des ids du solveur : dépôt, puis clients.
@@ -58,7 +68,7 @@ def run_julia(instance, seed):
                          fichier.with_suffix(".matrix"))
         t0 = time.time()
         with UN_SEUL_CALCUL:
-            sol = lancer_julia(work, fichier, ITERATIONS_JULIA, CHAINES, seed)
+            sol = lancer_julia(work, fichier, iterations, CHAINES, seed)
         routes_k, _ = read_solution(sol)
         duree = round(time.time() - t0, 2)
     finally:
@@ -81,7 +91,7 @@ def run_julia(instance, seed):
         "limite_depassee": len(routes) > vehicle_count,
         "nombre_vehicules_disponibles": vehicle_count,
         "number_of_customers": len(customers),
-        "iterations": ITERATIONS_JULIA,
+        "iterations": iterations,
         "history": [], "destroy_weights": [], "repair_weights": [],
         "solver": "julia", "solver_seconds": duree,
     }
