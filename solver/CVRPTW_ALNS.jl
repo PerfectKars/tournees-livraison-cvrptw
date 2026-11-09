@@ -1361,12 +1361,16 @@ function solve_parallel(instance_path::String;
         candidate
     end
 
-    vehicles(final) <= inst.nb_vehicles ||
-        error("Limite de véhicules dépassée : ", vehicles(final),
-              " utilisés pour ", inst.nb_vehicles, " autorisés. ",
-              "Aucune solution sous la limite n'a été trouvée ",
-              "(augmentez les itérations ou la limite).")
-    validate!(final, inst) || error("La solution finale est invalide.")
+    # La limite de véhicules n'empêche pas d'obtenir un résultat : si le
+    # meilleur trouvé la dépasse, on le rend quand même avec un avertissement
+    # (ligne repérée par le pont) pour éviter de relancer le calcul.
+    if vehicles(final) > inst.nb_vehicles
+        println("AVERTISSEMENT limite de véhicules dépassée : ",
+                vehicles(final), " utilisés pour ", inst.nb_vehicles,
+                " autorisés.")
+    end
+    validate!(final, inst; limit = length(final.routes)) ||
+        error("La solution finale est invalide.")
     write_solution(path, final)
 
     elapsed = time() - started

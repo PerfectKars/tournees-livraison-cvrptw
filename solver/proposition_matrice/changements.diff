@@ -115,9 +115,16 @@
 ---
 >         if reference !== nothing && isfinite(target_gap) &&
 >            vehicles(checked) <= inst.nb_vehicles
-1302a1364,1368
->     vehicles(final) <= inst.nb_vehicles ||
->         error("Limite de véhicules dépassée : ", vehicles(final),
->               " utilisés pour ", inst.nb_vehicles, " autorisés. ",
->               "Aucune solution sous la limite n'a été trouvée ",
->               "(augmentez les itérations ou la limite).")
+1303c1364,1373
+<     validate!(final, inst) || error("La solution finale est invalide.")
+---
+>     # La limite de véhicules n'empêche pas d'obtenir un résultat : si le
+>     # meilleur trouvé la dépasse, on le rend quand même avec un avertissement
+>     # (ligne repérée par le pont) pour éviter de relancer le calcul.
+>     if vehicles(final) > inst.nb_vehicles
+>         println("AVERTISSEMENT limite de véhicules dépassée : ",
+>                 vehicles(final), " utilisés pour ", inst.nb_vehicles,
+>                 " autorisés.")
+>     end
+>     validate!(final, inst; limit = length(final.routes)) ||
+>         error("La solution finale est invalide.")

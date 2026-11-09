@@ -335,6 +335,7 @@ def convert(instance_path, sol_path, colis=None, seed=42):
         "cout_convention_benchmark": round(cout_bench, 3),
         "nb_vehicules_disponibles": inst["nb_vehicules"],
         "nb_vehicules_utilises": len(tournees),
+        "limite_depassee": len(tournees) > inst["nb_vehicules"],
         "distance_totale": cout, "cout_annonce": cost_sol,
         "valide": not erreurs, "erreurs": erreurs, "tournees": tournees,
     }

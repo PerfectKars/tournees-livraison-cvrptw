@@ -76,6 +76,10 @@ def run_julia(instance, seed):
         "route_details": details,
         "cost": round(sum(d["distance_km"] for d in details), 2),
         "number_of_routes": len(routes),
+        # Le solveur rend toujours son meilleur résultat : si la flotte
+        # annoncée est insuffisante, le front peut l'afficher.
+        "limite_depassee": len(routes) > vehicle_count,
+        "nombre_vehicules_disponibles": vehicle_count,
         "number_of_customers": len(customers),
         "iterations": ITERATIONS_JULIA,
         "history": [], "destroy_weights": [], "repair_weights": [],
