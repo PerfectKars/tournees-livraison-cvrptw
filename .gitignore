@@ -10,4 +10,3 @@ __pycache__/
 CLAUDE.md
 .claude.json
 graphify-out/
-*.zip
