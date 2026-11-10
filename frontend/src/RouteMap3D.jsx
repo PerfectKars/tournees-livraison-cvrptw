@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import { setWorkerUrl } from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
@@ -200,8 +200,8 @@ export default function RouteMap3D({ instance, optimization }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
 
-  const details = optimization?.route_details || [];
-  const routes = optimization?.routes || [];
+  const details = useMemo(() => optimization?.route_details || [], [optimization]);
+  const routes = useMemo(() => optimization?.routes || [], [optimization]);
 
   const detail = details[selected] || {};
   const route = routes[selected] || [];
@@ -375,7 +375,7 @@ export default function RouteMap3D({ instance, optimization }) {
     return () => {
       cancelled = true;
     };
-  }, [instance, optimization]);
+  }, [instance, optimization, routes]);
 
   // =========================================================
   // NOUVELLE OPTIMISATION : RÉINITIALISATION
