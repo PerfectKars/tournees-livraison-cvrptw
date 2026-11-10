@@ -15,6 +15,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import co2
 from julia_runner import UN_SEUL_CALCUL, lancer_julia
 from sol_to_json import read_solution, write_matrix, write_solomon
 
@@ -79,6 +80,7 @@ def run_julia(instance, seed):
     for r in routes:
         d = summarize_route(r, customers, depot, travel_data)
         d["capacity"] = capacity
+        d["co2_kg"] = co2.co2_kg(d["distance_km"])
         details.append(d)
 
     return {
@@ -86,6 +88,7 @@ def run_julia(instance, seed):
         "route_details": details,
         "cost": round(sum(d["distance_km"] for d in details), 2),
         "number_of_routes": len(routes),
+        "co2": co2.resume(details),
         # Le solveur rend toujours son meilleur résultat : si la flotte
         # annoncée est insuffisante, le front peut l'afficher.
         "limite_depassee": len(routes) > vehicle_count,

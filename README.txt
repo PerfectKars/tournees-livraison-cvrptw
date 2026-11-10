@@ -29,3 +29,12 @@ cd backend  && .venv/bin/uvicorn api:app --port 8000
 cd frontend && npm install && npm run dev       # http://localhost:5173
 ```
 Le front appelle `/api/instance`, `/api/optimize` et `/api/routes/geometry`. Les tournées sont calculées par le solveur Julia. Le mode `france` lui fournit la matrice routière OSRM (fichier `.matrix`, durées de trajet) ; les autres modes restent à vol d'oiseau. Le tracé des routes sur la carte demande une connexion internet (serveur public OSRM).
+
+## Comparer deux solveurs (et le CO2)
+```
+cd backend
+.venv/bin/python comparer_solveurs.py homberger/C1_2_1 --temps-tabou 30
+```
+Compare la recherche tabou (`backend/recherche_tabou.py`, simple, volontairement non optimisée) au solveur Julia : véhicules, distance, CO2, gap, temps.
+
+Le CO2 est calculé dans `backend/co2.py` (distance x facteur d'émission). **Le facteur par défaut (0,20 kg/km) est une hypothèse** : à remplacer par la valeur de la Base Empreinte de l'ADEME (variable d'environnement `CO2_FACTEUR_KG_KM`). Sur les instances de benchmark les distances sont des unités abstraites : le CO2 n'a de sens que sur des distances en km (mode `france`).

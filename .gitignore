@@ -4,3 +4,9 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 *.zip
+
+# Fichiers liés à Claude / aux assistants IA (jamais versionnés)
+.claude/
+CLAUDE.md
+.claude.json
+graphify-out/

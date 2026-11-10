@@ -109,6 +109,8 @@ def test_front_optimize_petite_sert_les_20_clients_avec_julia():
     assert {"routes", "route_details", "cost", "number_of_routes",
             "number_of_customers", "iterations"} <= set(res)
     assert sorted(c for t in res["routes"] for c in t) == list(range(1, 21))
+    assert res["co2"]["total_kg"] == pytest.approx(
+        sum(d["co2_kg"] for d in res["route_details"]), abs=0.01)
     assert all(s["within_time_window"] for d in res["route_details"] for s in d["stops"])
 
 
@@ -125,3 +127,30 @@ def test_ecriture_matrice_dans_l_ordre_depot_puis_clients(tmp_path):
 def test_matrice_avec_paire_absente_leve_une_erreur(tmp_path):
     with pytest.raises(ErreurBackend):
         write_matrix({"0": {"0": 0.0}}, [0, 1], tmp_path / "i.matrix")
+
+
+def test_co2_est_distance_fois_facteur():
+    import co2
+    assert co2.co2_kg(100, 0.25) == 25.0
+    res = convert(f"{C102}.txt", f"{C102}.sol", facteur_co2=0.5)
+    assert res["co2"]["total_kg"] == pytest.approx(0.5 * res["distance_totale"], abs=0.01)
+    assert res["co2"]["facteur_kg_par_km"] == 0.5
+
+
+def test_recherche_tabou_donne_une_solution_valide_et_reproductible(tmp_path):
+    from recherche_tabou import ecrire_sol, resoudre
+    inst = read_instance(f"{C102}.txt")
+    r1, st1 = resoudre(inst, iterations=200, temps_max=60, seed=1)
+    r2, _ = resoudre(inst, iterations=200, temps_max=60, seed=1)
+    assert r1 == r2                                   # même graine, même résultat
+    assert st1["cout"] <= st1["cout_depart"] + 1e-9   # jamais pire que le départ
+    ecrire_sol(r1, tmp_path / "t.sol")
+    res = convert(f"{C102}.txt", str(tmp_path / "t.sol"))
+    assert res["valide"], res["erreurs"]
+
+
+def test_reference_avec_seulement_le_cout(tmp_path):
+    from sol_to_json import read_cost
+    f = tmp_path / "ref.sol"
+    f.write_text("Cost: 828.14\n")
+    assert read_cost(f) == 828.14

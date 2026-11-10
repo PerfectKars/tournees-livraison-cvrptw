@@ -17,6 +17,8 @@ import re
 import sys
 from pathlib import Path
 
+import co2
+
 EPS = 1e-6
 
 
@@ -181,6 +183,17 @@ def write_matrix(matrix, order, path):
     Path(path).write_text("\n".join(lignes) + "\n", encoding="utf-8")
 
 
+def read_cost(path):
+    """Coût annoncé dans un .sol (ligne 'Cost ...'), ou None. Certaines
+    références ne contiennent que cette ligne, sans routes."""
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            m = re.match(r"\s*Cost\s*:?\s*([0-9.eE+-]+)", line, re.I)
+            if m:
+                return float(m.group(1))
+    return None
+
+
 def read_solution(path):
     """Lit un .sol. Renvoie (liste de routes, coût ou None)."""
     routes, cost = [], None
@@ -299,7 +312,7 @@ def build_route(index, ids, instance, colis):
     }
 
 
-def convert(instance_path, sol_path, colis=None, seed=42):
+def convert(instance_path, sol_path, colis=None, seed=42, facteur_co2=None):
     inst = read_instance(instance_path)
     routes, cost_sol = read_solution(sol_path)
     if colis is None:
@@ -325,6 +338,8 @@ def convert(instance_path, sol_path, colis=None, seed=42):
     tournees = [build_route(k, r, inst, colis) for k, r in enumerate(routes, 1)]
     cout = round(sum(t["distance"] for t in tournees), 3)
     for t in tournees:
+        t["co2_kg"] = co2.co2_kg(t["distance"], facteur_co2)
+    for t in tournees:
         erreurs += [f"tournée {t['id']} : {v}" for v in t["violations"]]
     if cost_sol is not None and abs(cost_sol - cout) > 0.5:
         erreurs.append(f".sol annonce {cost_sol}, recalcul {cout}")
@@ -337,6 +352,7 @@ def convert(instance_path, sol_path, colis=None, seed=42):
         "nb_vehicules_utilises": len(tournees),
         "limite_depassee": len(tournees) > inst["nb_vehicules"],
         "distance_totale": cout, "cout_annonce": cost_sol,
+        "co2": co2.resume(tournees, facteur_co2),
         "valide": not erreurs, "erreurs": erreurs, "tournees": tournees,
     }
 
