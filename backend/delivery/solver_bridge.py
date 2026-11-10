@@ -4,11 +4,11 @@ Le front appelle POST /api/optimize et attend un dictionnaire `resultats`
 (routes, route_details, cost, ...). Cette fonction garde exactement ce format
 mais fait calculer les tournées par le solveur Julia.
 
-Instance avec matrice routière OSRM (mode 'france') : la matrice des durées
-est écrite dans <instance>.matrix, que le solveur Julia lit à la place des
-distances euclidiennes. Le solveur minimise alors les durées de trajet (une
-seule matrice) ; les kilomètres affichés sont recalculés ensuite avec la
-matrice OSRM. Sans matrice, le solveur travaille à vol d'oiseau comme avant.
+Instance avec matrice routière OSRM (mode 'france') : deux fichiers sont écrits
+pour le solveur Julia, qui les lit à la place des distances euclidiennes :
+<instance>.matrix (durées en minutes : fenêtres horaires) et <instance>.dist
+(distances en km : coût minimisé). Sans matrice, le solveur travaille à vol
+d'oiseau comme avant.
 """
 import shutil
 import tempfile
@@ -69,8 +69,11 @@ def run_julia(instance, seed):
         write_solomon(inst, fichier)
         if travel_data:
             # Lignes dans l'ordre des ids du solveur : dépôt, puis clients.
-            write_matrix(travel_data["duration_min"], [depot["id"], *ids],
+            ordre = [depot["id"], *ids]
+            write_matrix(travel_data["duration_min"], ordre,
                          fichier.with_suffix(".matrix"))
+            write_matrix(travel_data["distance_km"], ordre,
+                         fichier.with_suffix(".dist"))
         t0 = time.time()
         with UN_SEUL_CALCUL:
             sol = lancer_julia(work, fichier, iterations, CHAINES, seed,

@@ -21,8 +21,9 @@ struct Instance
     nb_vehicles::Int
     capacity::Int
     customers::Vector{Customer}
-    travel::Matrix{Float64}
+    travel::Matrix{Float64}   # temps de trajet : fenêtres horaires
     neighbors::Vector{Vector{Int}}
+    dist::Matrix{Float64}     # distance : coût à minimiser (= travel par défaut)
 end
 
 mutable struct Route
@@ -167,6 +168,16 @@ function read_solomon(path::String)
         println("Matrice de trajet lue : ", basename(matrix_path))
     end
 
+    # Matrice de distances optionnelle (<instance>.dist, même format) : coût à
+    # minimiser, distinct du temps de trajet (ex. km contre minutes par la
+    # route). Sans fichier, le coût est la matrice de trajet elle-même.
+    dist = travel
+    dist_path = splitext(path)[1] * ".dist"
+    if isfile(dist_path)
+        dist = read_travel_matrix(dist_path, n)
+        println("Matrice de distances lue : ", basename(dist_path))
+    end
+
     # Voisins clients uniquement : le dépôt n'est pas sélectionné.
     neighbors = Vector{Vector{Int}}(undef, n)
 
@@ -177,7 +188,7 @@ function read_solomon(path::String)
     end
 
     inst = Instance(
-        strip(lines[1]), nv, capacity, customers, travel, neighbors
+        strip(lines[1]), nv, capacity, customers, travel, neighbors, dist
     )
 
     println("Instance chargée : ", inst.name)
@@ -198,11 +209,11 @@ function route_distance(ids::Vector{Int}, inst::Instance)
     previous = 0
 
     for id in ids
-        total += inst.travel[previous + 1, id + 1]
+        total += inst.dist[previous + 1, id + 1]
         previous = id
     end
 
-    return total + inst.travel[previous + 1, 1]
+    return total + inst.dist[previous + 1, 1]
 end
 
 function refresh!(r::Route, inst::Instance)
@@ -289,9 +300,9 @@ function insertion_delta(r::Route, pos::Int, id::Int, inst::Instance)
     previous = pos == 1 ? 0 : r.customers[pos - 1]
     next_id = pos > length(r.customers) ? 0 : r.customers[pos]
 
-    return inst.travel[previous + 1, id + 1] +
-           inst.travel[id + 1, next_id + 1] -
-           inst.travel[previous + 1, next_id + 1]
+    return inst.dist[previous + 1, id + 1] +
+           inst.dist[id + 1, next_id + 1] -
+           inst.dist[previous + 1, next_id + 1]
 end
 
 function removal_gain(r::Route, pos::Int, inst::Instance)
@@ -299,9 +310,9 @@ function removal_gain(r::Route, pos::Int, inst::Instance)
     previous = pos == 1 ? 0 : r.customers[pos - 1]
     next_id = pos == length(r.customers) ? 0 : r.customers[pos + 1]
 
-    return inst.travel[previous + 1, id + 1] +
-           inst.travel[id + 1, next_id + 1] -
-           inst.travel[previous + 1, next_id + 1]
+    return inst.dist[previous + 1, id + 1] +
+           inst.dist[id + 1, next_id + 1] -
+           inst.dist[previous + 1, next_id + 1]
 end
 
 function insert_at!(s::Solution, ri::Int, pos::Int, id::Int, inst::Instance)
