@@ -21,6 +21,7 @@ import {
   CalendarDays,
   ChevronRight,
   Leaf,
+  TriangleAlert,
 } from "lucide-react";
 
 import "./App.css";
@@ -572,6 +573,18 @@ function App() {
 
       {optimization && (
         <>
+          {optimization.limite_depassee && (
+            <div className="warning-message" role="alert">
+              <TriangleAlert size={18} />
+              <span>
+                Flotte dépassée : {optimization.number_of_routes} camions
+                utilisés pour {optimization.nombre_vehicules_disponibles}{" "}
+                disponibles. Les tournées respectent capacités et horaires,
+                mais pas le nombre de camions autorisé.
+              </span>
+            </div>
+          )}
+
           <section className="stats-grid">
             <article className="stat-card">
               <div className="stat-top">
