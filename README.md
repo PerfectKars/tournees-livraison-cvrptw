@@ -38,3 +38,10 @@ cd backend
 Compare la recherche tabou (`backend/recherche_tabou.py`, simple, volontairement non optimisée) au solveur Julia : véhicules, distance, CO2, gap, temps.
 
 Le CO2 est calculé dans `backend/co2.py` (distance x facteur d'émission). **Le facteur par défaut (0,20 kg/km) est une hypothèse** : à remplacer par la valeur de la Base Empreinte de l'ADEME (variable d'environnement `CO2_FACTEUR_KG_KM`). Sur les instances de benchmark les distances sont des unités abstraites : le CO2 n'a de sens que sur des distances en km (mode `france`).
+
+## Durée du calcul du solveur Julia
+- **Limite : 60 s de calcul** (`TEMPS_MAX` dans `backend/julia_runner.py`, hors démarrage de Julia). Le recuit simulé refroidit selon le temps, il finit donc de refroidir à la limite.
+- **Instance avec solution de référence** (`/solve`, fichier `.sol` à côté de l'instance) : arrêt anticipé dès que la distance est à 7 % ou moins de la référence (`GAP_CIBLE`) avec au plus autant de véhicules qu'elle ; sinon le solveur utilise les 60 s et garde le meilleur résultat. Les calculs faciles finissent en 1 à 3 s.
+- **Sans référence** (modes du front : `france`, `petite`...) : budget d'itérations selon la taille (200 par client, entre 5 000 et 60 000) et limite de 60 s ; il n'y a pas de gap à calculer.
+- En ligne de commande : 11e argument du solveur = temps maximal en secondes (`-` laisse la valeur par défaut des arguments 6 à 10).
+- Limite connue : si le solveur utilise beaucoup moins de véhicules que la référence (R2, RC2...) ou un de plus, la distance ne rejoint pas les 7 % et le calcul utilise les 60 s.

@@ -20,7 +20,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from delivery.main import app as front_app
-from julia_runner import UN_SEUL_CALCUL, lancer_julia
+from julia_runner import (GAP_CIBLE, ITER_SANS_LIMITE, TEMPS_MAX,
+                          UN_SEUL_CALCUL, lancer_julia)
 from sol_to_json import ErreurBackend, convert, read_instance, write_solomon
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -100,8 +101,15 @@ def run_job(job_id, req, source):
             ref = source.with_suffix(".sol")         # solution de référence (gap)
             if ref.exists():
                 shutil.copy(ref, work / ref.name)
-            sol = lancer_julia(work, inst_solomon, req.iterations,
-                               req.chains, req.seed)         # solveur
+            # Avec une solution de référence : le solveur s'arrête dès qu'il est
+            # à GAP_CIBLE de la référence, sinon au bout de TEMPS_MAX secondes.
+            # Sans référence : budget d'itérations demandé (et TEMPS_MAX).
+            avec_ref = ref.exists()
+            sol = lancer_julia(work, inst_solomon,
+                               ITER_SANS_LIMITE if avec_ref else req.iterations,
+                               req.chains, req.seed,
+                               gap=GAP_CIBLE if avec_ref else None,
+                               temps_max=TEMPS_MAX)          # solveur
             resultat = convert(str(source), str(sol))            # lecture_solution / validation
             resume = work / f"{source.stem}_alns_resume.txt"
             resultat["solveur"] = parse_resume(resume) if resume.exists() else {}

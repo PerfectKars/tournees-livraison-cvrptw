@@ -12,12 +12,16 @@ ROOT = Path(__file__).resolve().parent.parent
 SOLVER = ROOT / "solver" / "CVRPTW_ALNS.jl"
 JULIA = os.environ.get("JULIA") or shutil.which("julia")
 TIMEOUT_SOLVEUR = 900  # secondes : au-delà, on tue le calcul
+TEMPS_MAX = 60         # secondes de calcul du solveur (hors démarrage de Julia)
+GAP_CIBLE = 0.07       # arrêt anticipé à 7 % de la référence (si elle existe)
+ITER_SANS_LIMITE = 1_000_000_000  # le temps décide, pas le nombre d'itérations
 
 # Un seul calcul Julia à la fois : il utilise tous les coeurs.
 UN_SEUL_CALCUL = threading.Semaphore(1)
 
 
-def lancer_julia(work, inst_solomon, iterations, chains, seed):
+def lancer_julia(work, inst_solomon, iterations, chains, seed,
+                 gap=None, temps_max=None):
     """Exécute le solveur et renvoie le chemin du .sol produit.
 
     Lève ErreurBackend('solveur', ...) en cas de problème.
@@ -26,7 +30,11 @@ def lancer_julia(work, inst_solomon, iterations, chains, seed):
         raise ErreurBackend("solveur", "Julia introuvable : installez-le "
                             "ou définissez la variable d'environnement JULIA")
     cmd = [JULIA, f"--threads={chains}", "-O3", str(SOLVER), str(inst_solomon),
-           str(iterations), str(chains), "Inf", str(seed)]
+           str(iterations), str(chains),
+           "Inf" if gap is None else str(gap), str(seed)]
+    if temps_max:
+        # "-" = valeur par défaut des 5 réglages avant le temps maximal
+        cmd += ["-"] * 5 + [str(temps_max)]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, cwd=work,
                               timeout=TIMEOUT_SOLVEUR)

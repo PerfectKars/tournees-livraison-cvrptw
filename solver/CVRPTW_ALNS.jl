@@ -48,6 +48,10 @@ end
 
 const EPS = 1e-7
 
+# Nombre de véhicules de la solution de référence (0 = inconnu), renseigné par
+# read_reference ; sert au critère d'arrêt sur le gap.
+const REFERENCE_VEHICLES = Ref(0)
+
 empty_route() = Route(Int[], 0, 0.0, Float64[], Float64[])
 
 vehicles(s::Solution) = count(r -> !isempty(r.customers), s.routes)
@@ -391,6 +395,15 @@ function read_reference(instance_path::String, inst::Instance)
 
                 if value !== nothing && isfinite(value) && value > 0
                     println("Distance de référence : ", value)
+                    # Véhicules de la référence = nombre de lignes "Route #k:"
+                    # (0 si le fichier ne donne que le coût : inconnu).
+                    REFERENCE_VEHICLES[] = count(
+                        l -> occursin(r"(?i)^\s*route\s*#?\s*\d+\s*:", l),
+                        lines
+                    )
+                    REFERENCE_VEHICLES[] > 0 &&
+                        println("Véhicules de la référence : ",
+                                REFERENCE_VEHICLES[])
                     println()
                     return value
                 end
@@ -432,6 +445,7 @@ function read_reference(instance_path::String, inst::Instance)
 
                     if validate!(reference, inst)
                         value = distance(reference)
+                        REFERENCE_VEHICLES[] = length(routes)
                         println(
                             "Coût recalculé depuis les routes : ",
                             @sprintf("%.6f", value)
@@ -1018,8 +1032,16 @@ function publish!(shared::SharedState, candidate::Solution,
         if reference !== nothing && isfinite(target_gap) &&
            vehicles(checked) <= inst.nb_vehicles
             gap = distance(checked) / reference - 1
+            ref_veh = REFERENCE_VEHICLES[]
 
-            if gap <= target_gap + 1e-12
+            # Cible atteinte : distance dans le gap cible avec au plus autant
+            # de véhicules que la référence. Avec plus de véhicules la distance
+            # est trompeuse ; avec moins, la distance n'est pas comparable à la
+            # référence : on continue jusqu'à la limite de temps.
+            reached = gap <= target_gap + 1e-12 &&
+                      (ref_veh == 0 || vehicles(checked) <= ref_veh)
+
+            if reached
                 # Enregistre exactement la solution qui atteint la cible.
                 shared.target_solution = copy_solution(checked)
                 write_solution(path, checked)
@@ -1056,7 +1078,8 @@ function run_chain(inst::Instance, shared::SharedState,
                    t0_factor::Float64 = 0.003,
                    t_end::Float64 = 0.02,
                    migration::Int = 10000,
-                   q_scale::Float64 = 1.0)
+                   q_scale::Float64 = 1.0,
+                   time_limit::Float64 = Inf)
     rng = MersenneTwister(seed)
     current = initial_solution(
         inst, rng; noise = chain_id == 1 ? 0.0 : 0.1
@@ -1087,6 +1110,7 @@ function run_chain(inst::Instance, shared::SharedState,
     initial_temperature = max(2.0, distance(current) * t0_factor)
     temperature = initial_temperature
     cooling = exp(log(t_end) / max(1, max_iterations))
+    last_progress = 0.0
 
     stagnation = 0
     completed = 0
@@ -1094,6 +1118,7 @@ function run_chain(inst::Instance, shared::SharedState,
 
     for iteration in 1:max_iterations
         shared.stop[] && break
+        isfinite(time_limit) && time() - shared.started >= time_limit && break
         completed = iteration
 
         # Migration : conserve une exploration locale entre deux échanges.
@@ -1213,7 +1238,16 @@ function run_chain(inst::Instance, shared::SharedState,
 
         ds[di] += reward
         rs[rj] += reward
-        temperature *= cooling
+        if isfinite(time_limit)
+            # Le recuit suit le temps : il finit de refroidir à la limite de
+            # temps (ou au dernier tour, si les itérations s'épuisent avant).
+            progress = max(iteration / max_iterations,
+                           (time() - shared.started) / time_limit)
+            temperature *= t_end^max(0.0, progress - last_progress)
+            last_progress = max(last_progress, progress)
+        else
+            temperature *= cooling
+        end
 
         # Toujours effectué, même après une réparation échouée.
         if iteration % 100 == 0
@@ -1277,7 +1311,8 @@ function solve_parallel(instance_path::String;
                         t0_factor::Float64 = 0.003,
                         t_end::Float64 = 0.02,
                         migration::Int = 10000,
-                        q_scale::Float64 = 1.0)
+                        q_scale::Float64 = 1.0,
+                        time_limit::Float64 = Inf)
     max_iterations > 0 || error("max_iterations doit être positif.")
     n_chains > 0 || error("n_chaines doit être positif.")
     !isnan(target_gap) && target_gap >= 0 ||
@@ -1291,6 +1326,8 @@ function solve_parallel(instance_path::String;
     println("Threads Julia disponibles : ", Threads.nthreads())
     println("Nombre de chaînes : ", n_chains)
     println("Itérations maximales par chaîne : ", max_iterations)
+    isfinite(time_limit) &&
+        @printf("Temps maximal : %.0f s\n", time_limit)
 
     if Threads.nthreads() < n_chains
         println(
@@ -1311,7 +1348,8 @@ function solve_parallel(instance_path::String;
             "Distance cible : %.6f\n",
             reference * (1 + target_gap)
         )
-        println("Ce critère ne contraint pas le nombre de véhicules.")
+        println("Arrêt dès que la solution a moins de véhicules que la référence,")
+        println("ou autant avec une distance dans le gap cible.")
     end
 
     println("Sortie : ", path)
@@ -1334,7 +1372,8 @@ function solve_parallel(instance_path::String;
                         cid, seed + 7919cid;
                         consolidation = consolidation,
                         t0_factor = t0_factor, t_end = t_end,
-                        migration = migration, q_scale = q_scale
+                        migration = migration, q_scale = q_scale,
+                        time_limit = time_limit
                     )
                 end
             end
@@ -1395,6 +1434,8 @@ function solve_parallel(instance_path::String;
 
     if shared.stop[]
         println("Motif d'arrêt : gap distance cible atteint.")
+    elseif isfinite(time_limit) && elapsed >= time_limit
+        println("Motif d'arrêt : temps maximal atteint.")
     else
         println("Motif d'arrêt : toutes les itérations terminées.")
     end
@@ -1447,7 +1488,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
         println(
             "julia --threads 4 --project=. -O3 CVRPTW_ALNS.jl ",
             "<instance.txt> <max_iterations> [n_chaines] [gap_cible] [seed] ",
-            "[consolidation] [t0_factor] [t_end] [migration] [q_scale]"
+            "[consolidation] [t0_factor] [t_end] [migration] [q_scale] ",
+            "[temps_max_secondes]"
         )
         println()
         println("Exemple :")
@@ -1459,15 +1501,19 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     end
 
     instance_path = ARGS[1]
+    # Un argument "-" laisse la valeur par défaut (permet de n'en fixer qu'un).
+    arg(k, T, default) =
+        length(ARGS) >= k && ARGS[k] != "-" ? parse(T, ARGS[k]) : default
     iterations = parse(Int, ARGS[2])
-    chains = length(ARGS) >= 3 ? parse(Int, ARGS[3]) : 4
-    gap = length(ARGS) >= 4 ? parse(Float64, ARGS[4]) : Inf
-    seed = length(ARGS) >= 5 ? parse(Int, ARGS[5]) : 42
-    consolidation = length(ARGS) >= 6 ? parse(Float64, ARGS[6]) : 0.0
-    t0_factor = length(ARGS) >= 7 ? parse(Float64, ARGS[7]) : 0.003
-    t_end = length(ARGS) >= 8 ? parse(Float64, ARGS[8]) : 0.02
-    migration = length(ARGS) >= 9 ? parse(Int, ARGS[9]) : 10000
-    q_scale = length(ARGS) >= 10 ? parse(Float64, ARGS[10]) : 1.0
+    chains = arg(3, Int, 4)
+    gap = arg(4, Float64, Inf)
+    seed = arg(5, Int, 42)
+    consolidation = arg(6, Float64, 0.0)
+    t0_factor = arg(7, Float64, 0.003)
+    t_end = arg(8, Float64, 0.02)
+    migration = arg(9, Int, 10000)
+    q_scale = arg(10, Float64, 1.0)
+    time_limit = arg(11, Float64, Inf)
 
     solve_parallel(
         instance_path;
@@ -1479,6 +1525,7 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
         t0_factor = t0_factor,
         t_end = t_end,
         migration = migration,
-        q_scale = q_scale
+        q_scale = q_scale,
+        time_limit = time_limit
     )
 end

@@ -16,18 +16,22 @@ import time
 from pathlib import Path
 
 import co2
-from julia_runner import UN_SEUL_CALCUL, lancer_julia
+from julia_runner import TEMPS_MAX, UN_SEUL_CALCUL, lancer_julia
 from sol_to_json import read_solution, write_matrix, write_solomon
 
 from .alns import prepare_instance, summarize_route
 
 CHAINES = 4
-# Itérations par chaîne : 100 par client, entre 5 000 et 100 000 (environ 3 s
-# pour 100 clients, 25 s pour 1000). Le nombre envoyé par le front est ignoré :
-# il était prévu pour l'ancien solveur Python (5 à 500), bien trop faible pour
-# Julia. Le nombre réellement utilisé est renvoyé dans le résultat.
-ITER_PAR_CLIENT = 100
-ITER_MIN, ITER_MAX = 5_000, 100_000
+# Itérations par chaîne : 200 par client, entre 5 000 et 60 000. Mesuré sur
+# 5 instances (100 à 1000 clients, 2 graines) : les petites instances gagnent
+# encore à 200 itérations par client (R1_2_1 : écart 4,0 % -> 2,2 %), alors que
+# les grandes plafonnent dès 50 à 100 par client (RC2_10_10 : 7,5 % à 15 s,
+# 7,9 % à 58 s). Le plafond de 60 000 garde environ 18 s pour 1000 clients.
+# Le nombre envoyé par le front est ignoré : il était prévu pour l'ancien
+# solveur Python (5 à 500), bien trop faible pour Julia. Le nombre réellement
+# utilisé est renvoyé dans le résultat.
+ITER_PAR_CLIENT = 200
+ITER_MIN, ITER_MAX = 5_000, 60_000
 
 
 def iterations_julia(nb_clients):
@@ -69,7 +73,8 @@ def run_julia(instance, seed):
                          fichier.with_suffix(".matrix"))
         t0 = time.time()
         with UN_SEUL_CALCUL:
-            sol = lancer_julia(work, fichier, iterations, CHAINES, seed)
+            sol = lancer_julia(work, fichier, iterations, CHAINES, seed,
+                               temps_max=TEMPS_MAX)
         routes_k, _ = read_solution(sol)
         duree = round(time.time() - t0, 2)
     finally:
