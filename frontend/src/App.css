@@ -214,3 +214,28 @@ td { padding: 13px 8px; border-bottom: 1px solid #F0EBE1; }
   color: #7A3F27; background: var(--terracotta-pale); border: 1px solid var(--terracotta);
 }
 .warning-message svg { flex-shrink: 0; margin-top: 1px; }
+
+/* Benchmark du solveur (page Analyses) */
+.select-button:disabled { opacity: .5; cursor: default; }
+.bench-panel { margin-bottom: 18px; }
+.bench-presets { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.bench-group { display: flex; align-items: center; gap: 14px; margin-top: 14px; flex-wrap: wrap; }
+.bench-group > strong { width: 82px; font-size: 11px; color: var(--ink); }
+.bench-chips { display: flex; gap: 7px; flex-wrap: wrap; }
+.bench-chip { display: flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); background: #F8F5ED; font-size: 11px; color: #73796B; cursor: pointer; user-select: none; }
+.bench-chip input { accent-color: var(--sage-dark); }
+.bench-chip.on { background: var(--sage-pale); color: var(--sage-dark); border-color: var(--sage); }
+.bench-actions { display: flex; align-items: center; gap: 16px; margin-top: 20px; flex-wrap: wrap; }
+.bench-actions .primary-button:disabled { opacity: .6; cursor: default; transform: none; }
+.bench-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 17px; margin-bottom: 18px; }
+.bench-bars { margin-top: 16px; display: flex; flex-direction: column; gap: 7px; max-height: 560px; overflow-y: auto; padding-right: 4px; }
+.bench-row { display: grid; grid-template-columns: 74px minmax(0, 1fr) 62px; align-items: center; gap: 8px; font-size: 10px; }
+.bench-label { color: var(--ink); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bench-track { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 2px 0; }
+.bench-fill { height: 7px; border-radius: 4px; min-width: 2px; }
+.bench-fill.ok { background: var(--sage); }
+.bench-fill.ko { background: var(--terracotta); }
+.bench-fill.ref { background: #CFD6C4; }
+.bench-seuil { position: absolute; top: -2px; bottom: -2px; width: 0; border-left: 1.5px dashed var(--ink); opacity: .55; }
+.bench-value { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (max-width: 1250px) { .bench-grid { grid-template-columns: 1fr; } }

@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 import json
 import re
+import threading
+import time
+import uuid
 from urllib.request import urlopen
 from urllib.parse import quote
 
@@ -565,6 +568,79 @@ def geometries_tournees(payload: dict):
             status_code=502,
             detail=f"Impossible de calculer les routes OSRM : {exc}"
         )
+
+
+# Calculs en tâche de fond : le solveur peut prendre jusqu'à TEMPS_MAX secondes,
+# le front lance le calcul puis interroge son état (il ne reste pas bloqué).
+calculs_front = {}
+verrou_calculs = threading.Lock()
+CALCULS_GARDES = 50
+
+
+def _calcul_front(job_id, mode, iterations, removal_rate):
+    job = calculs_front[job_id]
+    try:
+        instance = charger_instance(mode)
+        job["resultats"] = run_alns(
+            instance=instance, iterations=iterations,
+            removal_rate=removal_rate, seed=42
+        )
+        job["instance"] = instance["nom_instance"]
+        job["statut"] = "termine"
+    except HTTPException as erreur:
+        job["statut"] = "erreur"
+        job["detail"] = str(erreur.detail)
+    except ValueError as erreur:
+        job["statut"] = "erreur"
+        job["detail"] = str(erreur)
+    except Exception as erreur:  # noqa: BLE001 : rendu visible au front
+        job["statut"] = "erreur"
+        job["detail"] = f"Erreur pendant l'optimisation : {erreur}"
+    finally:
+        job["fin"] = time.time()
+
+
+@app.post("/api/optimize/start", status_code=202)
+def demarrer_optimisation(
+    iterations: int = Query(default=500, ge=1, le=5000),
+    removal_rate: float = Query(default=0.15, gt=0, le=1),
+    mode: str = Query(default="solomon")
+):
+    """Lance le calcul en arrière-plan et renvoie son identifiant."""
+    if mode not in INSTANCES:
+        raise HTTPException(status_code=400, detail=f"Instance inconnue : {mode}")
+
+    job_id = uuid.uuid4().hex[:8]
+    with verrou_calculs:
+        calculs_front[job_id] = {"statut": "en_cours", "mode": mode,
+                                 "debut": time.time()}
+        # On ne garde que les derniers calculs (mémoire bornée).
+        for ancien in sorted(calculs_front, key=lambda k: calculs_front[k]["debut"])[:-CALCULS_GARDES]:
+            calculs_front.pop(ancien, None)
+
+    threading.Thread(target=_calcul_front,
+                     args=(job_id, mode, iterations, removal_rate),
+                     daemon=True).start()
+    return {"job_id": job_id, "status": "en_cours"}
+
+
+@app.get("/api/optimize/status/{job_id}")
+def statut_optimisation(job_id: str):
+    """Etat du calcul ; contient `resultats` (même format que /api/optimize)
+    quand status == 'termine'."""
+    job = calculs_front.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Calcul inconnu : {job_id}")
+
+    fin = job.get("fin") or time.time()
+    reponse = {"status": job["statut"], "mode": job["mode"],
+               "temps_ecoule_s": round(fin - job["debut"], 1)}
+    if job["statut"] == "termine":
+        reponse["instance"] = job["instance"]
+        reponse["resultats"] = job["resultats"]
+    elif job["statut"] == "erreur":
+        reponse["detail"] = job["detail"]
+    return reponse
 
 
 @app.post("/api/optimize")

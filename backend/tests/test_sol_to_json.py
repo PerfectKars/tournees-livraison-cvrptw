@@ -154,3 +154,61 @@ def test_reference_avec_seulement_le_cout(tmp_path):
     f = tmp_path / "ref.sol"
     f.write_text("Cost: 828.14\n")
     assert read_cost(f) == 828.14
+
+
+def test_instances_donnent_clients_et_reference():
+    from fastapi.testclient import TestClient
+    import api
+    par_nom = {i["nom"]: i for i in TestClient(api.app).get("/instances").json()}
+    c101 = par_nom["solomon/C101"]
+    assert c101["clients"] == 100
+    assert c101["reference_vehicules"] == 10
+    assert c101["reference_cout"] == pytest.approx(827.3)
+    # Référence sans lignes « Route » : coût connu, véhicules inconnus.
+    assert par_nom["homberger/RC2_10_10"]["reference_vehicules"] is None
+    assert len(par_nom) >= 31
+
+
+def test_front_optimisation_en_tache_de_fond_petite():
+    """Le front lance le calcul puis interroge son état au lieu de rester bloqué."""
+    import shutil
+    import time
+    if not shutil.which("julia"):
+        pytest.skip("Julia absent")
+    from fastapi.testclient import TestClient
+    import api
+    client = TestClient(api.app)
+    r = client.post("/api/optimize/start?mode=petite&iterations=5")
+    assert r.status_code == 202
+    job = r.json()["job_id"]
+    for _ in range(60):
+        etat = client.get(f"/api/optimize/status/{job}").json()
+        if etat["status"] != "en_cours":
+            break
+        time.sleep(1)
+    assert etat["status"] == "termine"
+    assert sorted(c for t in etat["resultats"]["routes"] for c in t) == list(range(1, 21))
+    assert client.get("/api/optimize/status/inconnu").status_code == 404
+    assert client.post("/api/optimize/start?mode=zzz").status_code == 400
+
+
+def test_solve_avec_reference_s_arrete_au_gap_cible():
+    """C101 a une référence : arrêt anticipé à 7 %, résultat valide."""
+    import shutil
+    import time
+    if not shutil.which("julia"):
+        pytest.skip("Julia absent")
+    from fastapi.testclient import TestClient
+    import api
+    client = TestClient(api.app)
+    job = client.post("/solve", json={"instance": "solomon/C101"}).json()["id"]
+    for _ in range(90):
+        etat = client.get(f"/solve/{job}").json()
+        if etat["statut"] in ("termine", "erreur"):
+            break
+        time.sleep(1)
+    assert etat["statut"] == "termine"
+    res = etat["resultat"]
+    assert res["valide"] and res["nb_vehicules_utilises"] <= 10
+    assert res["solveur"]["motif_arret"] == "gap"
+    assert res["solveur"]["temps_calcul"] < 30

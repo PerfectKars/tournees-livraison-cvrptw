@@ -45,3 +45,14 @@ Le CO2 est calculé dans `backend/co2.py` (distance x facteur d'émission). **Le
 - **Sans référence** (modes du front : `france`, `petite`...) : budget d'itérations selon la taille (200 par client, entre 5 000 et 60 000) et limite de 60 s ; il n'y a pas de gap à calculer.
 - En ligne de commande : 11e argument du solveur = temps maximal en secondes (`-` laisse la valeur par défaut des arguments 6 à 10).
 - Limite connue : si le solveur utilise beaucoup moins de véhicules que la référence (R2, RC2...) ou un de plus, la distance ne rejoint pas les 7 % et le calcul utilise les 60 s.
+
+## Page « Analyses » : benchmark du solveur
+La page **Analyses** du front lance le solveur sur des instances de référence (CVRPLIB : `instances/solomon` et `instances/homberger`, 30 instances avec leur meilleure solution connue) et les compare à cette référence :
+- sélection des instances (par taille, « Petites », « Moyennes », « Toutes »), calcul une instance après l'autre ;
+- cartes (instances calculées, gap moyen, objectif 7 % atteint, temps total), trois graphes (gap, véhicules, temps) et un tableau avec le motif d'arrêt de chaque calcul (objectif atteint ou 60 s écoulées) ;
+- le calcul continue si l'on change de page, et les résultats sont gardés dans le navigateur (bouton « Effacer les résultats »).
+
+Côté API :
+- `GET /instances` renvoie aussi `clients`, `reference_cout` et `reference_vehicules` ;
+- `POST /solve` puis `GET /solve/{id}` : le résultat contient `solveur.motif_arret` (`gap`, `temps` ou `iterations`), `temps_max` et `gap_cible_pourcent` ;
+- les modes du tableau de bord (`france`, `petite`...) se lancent en tâche de fond : `POST /api/optimize/start?mode=...` renvoie `job_id`, puis `GET /api/optimize/status/{job_id}` donne l'état et, une fois `termine`, `resultats` (même format que `POST /api/optimize`, qui reste disponible). Le bouton du tableau de bord affiche le temps écoulé au lieu de bloquer la page.
