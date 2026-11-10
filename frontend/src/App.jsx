@@ -20,6 +20,7 @@ import {
   X,
   CalendarDays,
   ChevronRight,
+  Leaf,
 } from "lucide-react";
 
 import "./App.css";
@@ -166,6 +167,12 @@ function App() {
   const distanceOptimisee = optimization
     ? Number(optimization.cost).toFixed(2)
     : "--";
+
+  // CO2 estimé par le back-end : distance de chaque tournée x facteur d'émission
+  const co2Total = optimization?.co2
+    ? Number(optimization.co2.total_kg).toFixed(1)
+    : "--";
+  const co2Facteur = optimization?.co2?.facteur_kg_par_km;
 
   // Composant de navigation
   const changerPage = (page) => {
@@ -391,6 +398,8 @@ function App() {
 
               <p>Distance totale : {distanceOptimisee}</p>
 
+              <p>CO₂ estimé : {co2Total} kg</p>
+
               <p>Itérations : {optimization.iterations}</p>
             </div>
           ) : (
@@ -599,6 +608,22 @@ function App() {
               <h2>{optimization.number_of_routes}</h2>
               <small>Tournées générées</small>
             </article>
+
+            <article className="stat-card">
+              <div className="stat-top">
+                <div className="stat-icon green">
+                  <Leaf size={21} />
+                </div>
+              </div>
+
+              <p className="stat-title">CO₂ estimé</p>
+              <h2>{co2Total} kg</h2>
+              <small>
+                {co2Facteur !== undefined
+                  ? `${co2Facteur} kg/km (hypothèse)`
+                  : "Non calculé"}
+              </small>
+            </article>
           </section>
 
           <section
@@ -622,6 +647,10 @@ function App() {
 
             <p>
               <strong>Distance totale :</strong> {distanceOptimisee}
+            </p>
+
+            <p>
+              <strong>CO₂ estimé :</strong> {co2Total} kg
             </p>
 
             <button

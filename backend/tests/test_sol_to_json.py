@@ -147,3 +147,10 @@ def test_recherche_tabou_donne_une_solution_valide_et_reproductible(tmp_path):
     ecrire_sol(r1, tmp_path / "t.sol")
     res = convert(f"{C102}.txt", str(tmp_path / "t.sol"))
     assert res["valide"], res["erreurs"]
+
+
+def test_reference_avec_seulement_le_cout(tmp_path):
+    from sol_to_json import read_cost
+    f = tmp_path / "ref.sol"
+    f.write_text("Cost: 828.14\n")
+    assert read_cost(f) == 828.14

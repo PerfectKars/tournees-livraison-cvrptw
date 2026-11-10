@@ -827,7 +827,7 @@ const waypoints =
                     <strong>Camion {i + 1}</strong>
 
                     <small>
-                      {r.length} clients · {d.distance_km ?? "—"} km
+                      {r.length} clients · {d.distance_km ?? "—"} km · {d.co2_kg ?? "—"} kg CO₂
                     </small>
 
                     <small className={`do-mini-status ${truckSimulation.statusType}`}>
@@ -988,6 +988,11 @@ const waypoints =
               <div>
                 <small>Clients</small>
                 <strong>{route.length}</strong>
+              </div>
+
+              <div style={{ gridColumn: "1 / -1" }}>
+                <small>CO₂ estimé</small>
+                <strong>{detail.co2_kg ?? "—"} kg</strong>
               </div>
 
             </div>

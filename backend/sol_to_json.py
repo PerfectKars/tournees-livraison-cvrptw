@@ -183,6 +183,17 @@ def write_matrix(matrix, order, path):
     Path(path).write_text("\n".join(lignes) + "\n", encoding="utf-8")
 
 
+def read_cost(path):
+    """Coût annoncé dans un .sol (ligne 'Cost ...'), ou None. Certaines
+    références ne contiennent que cette ligne, sans routes."""
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            m = re.match(r"\s*Cost\s*:?\s*([0-9.eE+-]+)", line, re.I)
+            if m:
+                return float(m.group(1))
+    return None
+
+
 def read_solution(path):
     """Lit un .sol. Renvoie (liste de routes, coût ou None)."""
     routes, cost = [], None

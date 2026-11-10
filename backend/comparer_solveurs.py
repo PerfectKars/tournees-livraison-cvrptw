@@ -14,7 +14,7 @@ from pathlib import Path
 
 from julia_runner import UN_SEUL_CALCUL, lancer_julia
 from recherche_tabou import ecrire_sol, resoudre
-from sol_to_json import ErreurBackend, convert, read_instance, read_solution, write_solomon
+from sol_to_json import ErreurBackend, convert, read_cost, read_instance, write_solomon
 
 INSTANCES = Path(__file__).resolve().parent.parent / "instances"
 
@@ -42,7 +42,7 @@ def ligne(nom, source, sol, secondes, ref):
 def comparer(nom, temps_tabou=30.0, iterations_julia=5000, seed=42):
     source = trouver(nom)
     ref_sol = source.with_suffix(".sol")
-    ref = read_solution(ref_sol)[1] if ref_sol.exists() else None
+    ref = read_cost(ref_sol) if ref_sol.exists() else None
     inst = read_instance(source)
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
