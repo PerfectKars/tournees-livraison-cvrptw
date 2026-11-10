@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 import co2
-from julia_runner import UN_SEUL_CALCUL, lancer_julia
+from julia_runner import TEMPS_MAX, UN_SEUL_CALCUL, lancer_julia
 from sol_to_json import read_solution, write_matrix, write_solomon
 
 from .alns import prepare_instance, summarize_route
@@ -73,7 +73,8 @@ def run_julia(instance, seed):
                          fichier.with_suffix(".matrix"))
         t0 = time.time()
         with UN_SEUL_CALCUL:
-            sol = lancer_julia(work, fichier, iterations, CHAINES, seed)
+            sol = lancer_julia(work, fichier, iterations, CHAINES, seed,
+                               temps_max=TEMPS_MAX)
         routes_k, _ = read_solution(sol)
         duree = round(time.time() - t0, 2)
     finally:
