@@ -26,6 +26,8 @@ import {
 
 import "./App.css";
 import RouteMap3D from "./RouteMap3D";
+import { PageBenchmark } from "./Benchmark";
+import { useBenchmark } from "./useBenchmark";
 
 const API_URL = "http://127.0.0.1:8000";
 
@@ -61,6 +63,11 @@ function App() {
   const [optimization, setOptimization] = useState(null);
   const [optimizing, setOptimizing] = useState(false);
   const [optimizationError, setOptimizationError] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  // Benchmark du solveur (page Analyses) : l'état reste ici pour que le calcul
+  // continue si l'on change de page.
+  const benchmark = useBenchmark(API_URL);
 
   // Chargement de l'instance sélectionnée
   useEffect(() => {
@@ -115,6 +122,7 @@ function App() {
 
     setOptimizing(true);
     setOptimizationError(null);
+    setElapsed(0);
 
     try {
       const iterations =
@@ -125,24 +133,55 @@ function App() {
         mode === "grande" ? 5 :
         5;
 
-      const url =
-        `${API_URL}/api/optimize?mode=${mode}` +
+      // Le calcul tourne en arrière-plan (jusqu'à 60 s) : on le lance, puis on
+      // interroge son état au lieu de laisser la page bloquée.
+      const urlDepart =
+        `${API_URL}/api/optimize/start?mode=${mode}` +
         `&iterations=${iterations}&removal_rate=0.15`;
 
-      console.log("Requête envoyée :", url);
+      console.log("Requête envoyée :", urlDepart);
 
-      const response = await fetch(url, {
-        method: "POST",
-      });
+      const depart = await fetch(urlDepart, { method: "POST" });
+      const departData = await depart.json();
 
-      const data = await response.json();
-
-      if (!response.ok) {
+      if (!depart.ok) {
         throw new Error(
-          typeof data.detail === "string"
-            ? data.detail
-            : `Erreur serveur : ${response.status}`
+          typeof departData.detail === "string"
+            ? departData.detail
+            : `Erreur serveur : ${depart.status}`
         );
+      }
+
+      const debutCalcul = Date.now();
+      let data = null;
+
+      while (!data) {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+
+        const reponse = await fetch(
+          `${API_URL}/api/optimize/status/${departData.job_id}`
+        );
+        const etat = await reponse.json();
+
+        if (!reponse.ok) {
+          throw new Error(
+            typeof etat.detail === "string"
+              ? etat.detail
+              : `Erreur serveur : ${reponse.status}`
+          );
+        }
+
+        setElapsed(Math.round((Date.now() - debutCalcul) / 1000));
+
+        if (etat.status === "erreur") {
+          throw new Error(etat.detail || "L'optimisation a échoué.");
+        }
+
+        if (etat.status === "termine") {
+          data = etat;
+        } else if (Date.now() - debutCalcul > 15 * 60 * 1000) {
+          throw new Error("Le calcul dépasse 15 minutes : abandon.");
+        }
       }
 
       if (!data.resultats) {
@@ -213,7 +252,7 @@ function App() {
       disabled={optimizing || loading}
     >
       <Plus size={18} />
-      {optimizing ? "Optimisation en cours..." : label}
+      {optimizing ? `Optimisation en cours... (${elapsed} s)` : label}
     </button>
   );
 
@@ -870,7 +909,9 @@ function App() {
 
           {activePage === "Carte des tournées" && afficherCarte()}
 
-          {["Clients", "Flotte", "Analyses"].includes(activePage) &&
+          {activePage === "Analyses" && <PageBenchmark bench={benchmark} />}
+
+          {["Clients", "Flotte"].includes(activePage) &&
             afficherPageEnPreparation()}
 
           {error && (
