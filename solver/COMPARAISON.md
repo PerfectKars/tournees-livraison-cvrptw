@@ -251,8 +251,8 @@ Elles sont disponibles en ligne de commande mais ne changent rien aux valeurs pa
 | 9 `migration` | période d'adoption de la meilleure solution globale (0 = jamais) | 10000 |
 | 10 `q_scale` | multiplicateur de la taille de destruction | 1,0 |
 
-Le mode diagnostic (variable d'environnement `ALNS_DIAG=1`) affiche, par chaîne et par
-opérateur : utilisations, réussites, acceptations, nouveaux meilleurs, temps.
+Le mode diagnostic (`ALNS_DIAG=1`, statistiques par opérateur) a servi pendant la mise au
+point puis a été retiré pour alléger le code ; il reste dans l'historique git.
 
 ### 3.6 `migration` à 10 000 (au lieu de 2000)
 

@@ -3,7 +3,21 @@ using Printf
 using Base.Threads
 
 # ============================================================================
-# Structures
+# Solveur CVRPTW par ALNS (Adaptive Large Neighborhood Search)
+#
+# Principe : on part d'une solution construite par insertion gloutonne, puis,
+# à chaque itération, on DÉTRUIT une partie de la solution (retrait de q
+# clients) et on la RÉPARE (réinsertion). La nouvelle solution est acceptée
+# selon un recuit simulé. Les opérateurs sont tirés selon des poids qui
+# s'adaptent à leurs résultats.
+#
+# Objectif hiérarchique : d'abord moins de véhicules, ensuite moins de
+# distance. Plusieurs chaînes indépendantes tournent en parallèle (multi-start)
+# et partagent leur meilleure solution (voir run_chain et solve_parallel).
+# ============================================================================
+
+# ============================================================================
+# Structures de données
 # ============================================================================
 
 struct Customer
@@ -20,12 +34,14 @@ struct Instance
     name::String
     nb_vehicles::Int
     capacity::Int
-    customers::Vector{Customer}
-    travel::Matrix{Float64}   # temps de trajet : fenêtres horaires
-    neighbors::Vector{Vector{Int}}
-    dist::Matrix{Float64}     # distance : coût à minimiser (= travel par défaut)
+    customers::Vector{Customer}   # indice 1 = dépôt (id 0)
+    travel::Matrix{Float64}       # temps de trajet : fenêtres horaires
+    neighbors::Vector{Vector{Int}}  # 30 plus proches clients de chaque point
+    dist::Matrix{Float64}         # distance : coût à minimiser (= travel par défaut)
 end
 
+# Une route garde, pour chaque client, l'heure de service au plus tôt
+# (earliest) et au plus tard (latest) : tester une insertion devient O(1).
 mutable struct Route
     customers::Vector{Int}
     load::Int
@@ -36,9 +52,10 @@ end
 
 mutable struct Solution
     routes::Vector{Route}
-    route_of::Vector{Int}
+    route_of::Vector{Int}   # route de chaque client (0 = non affecté)
 end
 
+# État commun aux chaînes parallèles, protégé par `mutex`.
 mutable struct SharedState
     mutex::ReentrantLock
     stop::Atomic{Bool}
@@ -60,24 +77,15 @@ distance(s::Solution) = sum(r.distance for r in s.routes)
 objective(s::Solution) = (vehicles(s), distance(s))
 better(a::Solution, b::Solution) = isless(objective(a), objective(b))
 
-function copy_solution(s::Solution)
-    routes = [
-        Route(
-            copy(r.customers),
-            r.load,
-            r.distance,
-            copy(r.earliest),
-            copy(r.latest)
-        )
-        for r in s.routes
-    ]
-    return Solution(routes, copy(s.route_of))
-end
+copy_route(r::Route) =
+    Route(copy(r.customers), r.load, r.distance, copy(r.earliest), copy(r.latest))
+copy_solution(s::Solution) = Solution(map(copy_route, s.routes), copy(s.route_of))
 
 # ============================================================================
-# Lecture de l'instance Solomon / Homberger
+# Lecture de l'instance (format Solomon / Homberger)
 # ============================================================================
 
+# Matrice optionnelle n×n (dépôt d'abord), une ligne par point.
 function read_travel_matrix(path::String, n::Int)
     rows = [split(strip(l)) for l in readlines(path) if !isempty(strip(l))]
     length(rows) == n ||
@@ -98,124 +106,93 @@ function read_travel_matrix(path::String, n::Int)
     return m
 end
 
+# Lit <instance><extension> s'il existe, sinon renvoie `default`.
+function optional_matrix(path::String, extension::String, n::Int, default, label)
+    file = splitext(path)[1] * extension
+    isfile(file) || return default
+    println(label, " lue : ", basename(file))
+    return read_travel_matrix(file, n)
+end
+
 function read_solomon(path::String)
     lines = readlines(path)
     isempty(lines) && error("Fichier d'instance vide.")
 
     header = findfirst(
-        line -> occursin("NUMBER", uppercase(line)) &&
-                occursin("CAPACITY", uppercase(line)),
+        l -> occursin("NUMBER", uppercase(l)) && occursin("CAPACITY", uppercase(l)),
         lines
     )
     header === nothing && error("En-tête NUMBER / CAPACITY introuvable.")
 
-    nv = 0
-    capacity = 0
-
+    # Première ligne à deux entiers après l'en-tête : véhicules et capacité.
+    nv = capacity = 0
     for k in (header + 1):length(lines)
         parts = split(strip(lines[k]))
         length(parts) == 2 || continue
-        a = tryparse(Int, parts[1])
-        b = tryparse(Int, parts[2])
+        a, b = tryparse(Int, parts[1]), tryparse(Int, parts[2])
         if a !== nothing && b !== nothing
-            nv = a
-            capacity = b
+            nv, capacity = a, b
             break
         end
     end
+    nv > 0 && capacity > 0 || error("Nombre de véhicules ou capacité invalide.")
 
-    nv > 0 && capacity > 0 ||
-        error("Nombre de véhicules ou capacité invalide.")
-
+    # Lignes clients : 7 valeurs numériques (id x y demande ready due service).
     customers = Customer[]
-
     for line in lines
         parts = split(strip(line))
         length(parts) == 7 || continue
-        values = tryparse.(Float64, parts)
-        any(isnothing, values) && continue
-        v = Float64[x for x in values]
-
-        push!(customers, Customer(
-            Int(v[1]), v[2], v[3], Int(v[4]), v[5], v[6], v[7]
-        ))
+        v = tryparse.(Float64, parts)
+        any(isnothing, v) && continue
+        push!(customers, Customer(Int(v[1]), v[2], v[3], Int(v[4]), v[5], v[6], v[7]))
     end
 
     sort!(customers, by = c -> c.id)
     length(customers) >= 2 || error("Aucun client trouvé.")
-
-    for (i, c) in enumerate(customers)
-        c.id == i - 1 ||
-            error("Les identifiants doivent être consécutifs : 0, 1, ..., n.")
-    end
+    all(((i, c),) -> c.id == i - 1, enumerate(customers)) ||
+        error("Les identifiants doivent être consécutifs : 0, 1, ..., n.")
 
     n = length(customers)
-    travel = Matrix{Float64}(undef, n, n)
 
-    for i in 1:n, j in 1:n
-        travel[i, j] = hypot(
-            customers[i].x - customers[j].x,
-            customers[i].y - customers[j].y
-        )
-    end
+    # Par défaut : distance à vol d'oiseau. Si <instance>.matrix existe, elle
+    # donne les temps de trajet (fenêtres horaires) ; <instance>.dist, si elle
+    # existe, donne le coût à minimiser (ex. km contre minutes par la route).
+    travel = [hypot(customers[i].x - customers[j].x, customers[i].y - customers[j].y)
+              for i in 1:n, j in 1:n]
+    travel = optional_matrix(path, ".matrix", n, travel, "Matrice de trajet")
+    dist = optional_matrix(path, ".dist", n, travel, "Matrice de distances")
 
-    # Matrice de temps de trajet optionnelle : si <instance>.matrix existe,
-    # elle remplace les distances euclidiennes. Une ligne par point (dépôt
-    # d'abord), n valeurs séparées par des espaces.
-    matrix_path = splitext(path)[1] * ".matrix"
-    if isfile(matrix_path)
-        travel = read_travel_matrix(matrix_path, n)
-        println("Matrice de trajet lue : ", basename(matrix_path))
-    end
-
-    # Matrice de distances optionnelle (<instance>.dist, même format) : coût à
-    # minimiser, distinct du temps de trajet (ex. km contre minutes par la
-    # route). Sans fichier, le coût est la matrice de trajet elle-même.
-    dist = travel
-    dist_path = splitext(path)[1] * ".dist"
-    if isfile(dist_path)
-        dist = read_travel_matrix(dist_path, n)
-        println("Matrice de distances lue : ", basename(dist_path))
-    end
-
-    # Voisins clients uniquement : le dépôt n'est pas sélectionné.
-    neighbors = Vector{Vector{Int}}(undef, n)
-
-    for i in 1:n
+    # 30 plus proches clients (le dépôt n'est jamais sélectionné).
+    neighbors = map(1:n) do i
         ids = [id for id in 1:(n - 1) if id != i - 1]
         sort!(ids, by = id -> travel[i, id + 1])
-        neighbors[i] = ids[1:min(30, length(ids))]
+        ids[1:min(30, length(ids))]
     end
 
-    inst = Instance(
-        strip(lines[1]), nv, capacity, customers, travel, neighbors, dist
-    )
-
+    inst = Instance(strip(lines[1]), nv, capacity, customers, travel, neighbors, dist)
     println("Instance chargée : ", inst.name)
-    println("Véhicules disponibles : ", nv)
-    println("Capacité : ", capacity)
-    println("Nombre de clients : ", n - 1)
+    println("Véhicules disponibles : ", nv, " | capacité : ", capacity,
+            " | clients : ", n - 1)
     println()
-
     return inst
 end
 
 # ============================================================================
-# Temps et distances des routes
+# Routes : distances, horaires, faisabilité
 # ============================================================================
 
 function route_distance(ids::Vector{Int}, inst::Instance)
     total = 0.0
     previous = 0
-
     for id in ids
         total += inst.dist[previous + 1, id + 1]
         previous = id
     end
-
     return total + inst.dist[previous + 1, 1]
 end
 
+# Recalcule charge, distance et horaires au plus tôt / au plus tard.
+# Renvoie true si la route respecte capacité et fenêtres horaires.
 function refresh!(r::Route, inst::Instance)
     n = length(r.customers)
     resize!(r.earliest, n)
@@ -224,6 +201,7 @@ function refresh!(r::Route, inst::Instance)
     r.load = 0
     r.distance = route_distance(r.customers, inst)
 
+    # Passe avant : heure de début de service au plus tôt.
     t = inst.customers[1].ready
     previous = 0
     feasible = true
@@ -243,22 +221,16 @@ function refresh!(r::Route, inst::Instance)
     end
 
     feasible &= r.load <= inst.capacity
-    feasible &= t + inst.travel[previous + 1, 1] <=
-                inst.customers[1].due + EPS
+    feasible &= t + inst.travel[previous + 1, 1] <= inst.customers[1].due + EPS
 
+    # Passe arrière : heure de début de service au plus tard sans retard.
     next_id = 0
     next_latest = inst.customers[1].due
 
     for i in n:-1:1
         id = r.customers[i]
         c = inst.customers[id + 1]
-
-        r.latest[i] = min(
-            c.due,
-            next_latest - c.service -
-            inst.travel[id + 1, next_id + 1]
-        )
-
+        r.latest[i] = min(c.due, next_latest - c.service - inst.travel[id + 1, next_id + 1])
         next_latest = r.latest[i]
         next_id = id
     end
@@ -266,6 +238,8 @@ function refresh!(r::Route, inst::Instance)
     return feasible
 end
 
+# Insérer `id` en position `pos` respecte-t-il capacité et fenêtres horaires ?
+# Test en O(1) grâce à earliest/latest.
 function can_insert(r::Route, pos::Int, id::Int, inst::Instance)
     c = inst.customers[id + 1]
     r.load + c.demand <= inst.capacity || return false
@@ -273,47 +247,34 @@ function can_insert(r::Route, pos::Int, id::Int, inst::Instance)
     n = length(r.customers)
     previous = pos == 1 ? 0 : r.customers[pos - 1]
 
-    departure = if pos == 1
-        inst.customers[1].ready
-    else
-        r.earliest[pos - 1] + inst.customers[previous + 1].service
-    end
+    departure = pos == 1 ? inst.customers[1].ready :
+                r.earliest[pos - 1] + inst.customers[previous + 1].service
 
-    start = max(
-        departure + inst.travel[previous + 1, id + 1],
-        c.ready
-    )
+    start = max(departure + inst.travel[previous + 1, id + 1], c.ready)
     start <= c.due + EPS || return false
 
     if pos <= n
         next_id = r.customers[pos]
-        arrival_next = start + c.service +
-                       inst.travel[id + 1, next_id + 1]
+        arrival_next = start + c.service + inst.travel[id + 1, next_id + 1]
         return arrival_next <= r.latest[pos] + EPS
     end
 
-    return start + c.service + inst.travel[id + 1, 1] <=
-           inst.customers[1].due + EPS
+    return start + c.service + inst.travel[id + 1, 1] <= inst.customers[1].due + EPS
 end
 
-function insertion_delta(r::Route, pos::Int, id::Int, inst::Instance)
-    previous = pos == 1 ? 0 : r.customers[pos - 1]
-    next_id = pos > length(r.customers) ? 0 : r.customers[pos]
+# Détour de distance pour passer par `id` entre `previous` et `next_id`.
+# Sert au coût d'une insertion comme au gain d'un retrait.
+detour(inst::Instance, previous::Int, id::Int, next_id::Int) =
+    inst.dist[previous + 1, id + 1] + inst.dist[id + 1, next_id + 1] -
+    inst.dist[previous + 1, next_id + 1]
 
-    return inst.dist[previous + 1, id + 1] +
-           inst.dist[id + 1, next_id + 1] -
-           inst.dist[previous + 1, next_id + 1]
-end
+insertion_delta(r::Route, pos::Int, id::Int, inst::Instance) =
+    detour(inst, pos == 1 ? 0 : r.customers[pos - 1], id,
+           pos > length(r.customers) ? 0 : r.customers[pos])
 
-function removal_gain(r::Route, pos::Int, inst::Instance)
-    id = r.customers[pos]
-    previous = pos == 1 ? 0 : r.customers[pos - 1]
-    next_id = pos == length(r.customers) ? 0 : r.customers[pos + 1]
-
-    return inst.dist[previous + 1, id + 1] +
-           inst.dist[id + 1, next_id + 1] -
-           inst.dist[previous + 1, next_id + 1]
-end
+removal_gain(r::Route, pos::Int, inst::Instance) =
+    detour(inst, pos == 1 ? 0 : r.customers[pos - 1], r.customers[pos],
+           pos == length(r.customers) ? 0 : r.customers[pos + 1])
 
 function insert_at!(s::Solution, ri::Int, pos::Int, id::Int, inst::Instance)
     insert!(s.routes[ri].customers, pos, id)
@@ -336,12 +297,11 @@ function remove_id!(s::Solution, id::Int, inst::Instance)
     return true
 end
 
-# limit : nombre maximal de véhicules toléré. Par défaut la limite de
-# l'instance ; la construction et la recherche utilisent parfois plus de
-# routes que la limite (voir initial_solution), seul le résultat final est
-# contrôlé strictement.
-function validate!(s::Solution, inst::Instance;
-                   limit::Int = inst.nb_vehicles)
+# Contrôle complet d'une solution : chaque client exactement une fois, routes
+# faisables, au plus `limit` véhicules. La construction et la recherche
+# utilisent parfois plus de routes que la limite (voir initial_solution) ;
+# seul le résultat final est contrôlé strictement.
+function validate!(s::Solution, inst::Instance; limit::Int = inst.nb_vehicles)
     seen = zeros(Int, length(inst.customers))
     fill!(s.route_of, 0)
 
@@ -352,41 +312,49 @@ function validate!(s::Solution, inst::Instance;
             seen[id + 1] == 1 || return false
             s.route_of[id + 1] = ri
         end
-
         refresh!(r, inst) || return false
     end
 
-    return all(==(1), seen[2:end]) &&
-           vehicles(s) <= limit
+    return all(==(1), seen[2:end]) && vehicles(s) <= limit
 end
 
 # ============================================================================
-# Lecture du coût de référence
+# Solution de référence (fichier .sol) : sert au calcul du gap
 # ============================================================================
 
+# Routes lues dans les lignes « Route #k: id id id ».
+function parse_reference_routes(lines)
+    routes = Vector{Vector{Int}}()
+    for raw in lines
+        m = match(r"(?i)^\s*route\s*#?\s*\d+\s*:\s*(.*)$", raw)
+        m === nothing && continue
+        ids = tryparse.(Int, split(strip(m.captures[1])))
+        any(isnothing, ids) && continue
+        route = Int[x for x in ids]
+        # Accepte un dépôt explicitement indiqué aux extrémités.
+        !isempty(route) && first(route) == 0 && popfirst!(route)
+        !isempty(route) && last(route) == 0 && pop!(route)
+        isempty(route) || push!(routes, route)
+    end
+    return routes
+end
+
+# Renvoie le coût de référence, ou nothing si aucun .sol exploitable n'existe.
+# Formats acceptés : ligne « Cost: x » (ou Distance, Objective...) ; à défaut,
+# le coût est recalculé depuis les routes.
 function read_reference(instance_path::String, inst::Instance)
     dir = dirname(abspath(instance_path))
     base = splitext(basename(instance_path))[1]
-
-    wanted = lowercase.([
-        base * ".sol",
-        base * "_ref.sol",
-        base * "_reference.sol"
-    ])
+    wanted = lowercase.([base * ".sol", base * "_ref.sol", base * "_reference.sol"])
 
     candidates = String[]
-
-    for folder in unique([dir, joinpath(dir, "reference"),
-                          joinpath(dir, "bks")])
+    for folder in unique([dir, joinpath(dir, "reference"), joinpath(dir, "bks")])
         isdir(folder) || continue
-
         for filename in readdir(folder)
-            lowercase(filename) in wanted || continue
-            push!(candidates, joinpath(folder, filename))
+            lowercase(filename) in wanted && push!(candidates, joinpath(folder, filename))
         end
     end
 
-    # Formats : Cost: ..., Cost = ..., Distance: ..., Objective: ...
     pattern = r"(?i)^\s*(?:cost|distance|total\s+distance|objective|value)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?(?:[eE][+-]?[0-9]+)?)\s*$"
 
     for path in unique(candidates)
@@ -394,76 +362,40 @@ function read_reference(instance_path::String, inst::Instance)
 
         try
             lines = readlines(path)
+            routes = parse_reference_routes(lines)
 
+            # 1) Coût écrit dans le fichier. Le nombre de routes donne les
+            #    véhicules de la référence (0 si le fichier n'a que le coût).
             for raw in lines
-                line = replace(raw, '\ufeff' => "")
-                m = match(pattern, line)
+                m = match(pattern, replace(raw, '﻿' => ""))
                 m === nothing && continue
-
-                value = tryparse(
-                    Float64, replace(m.captures[1], ',' => '.')
-                )
-
+                value = tryparse(Float64, replace(m.captures[1], ',' => '.'))
                 if value !== nothing && isfinite(value) && value > 0
                     println("Distance de référence : ", value)
-                    # Véhicules de la référence = nombre de lignes "Route #k:"
-                    # (0 si le fichier ne donne que le coût : inconnu).
                     REFERENCE_VEHICLES[] = count(
-                        l -> occursin(r"(?i)^\s*route\s*#?\s*\d+\s*:", l),
-                        lines
+                        l -> occursin(r"(?i)^\s*route\s*#?\s*\d+\s*:", l), lines
                     )
                     REFERENCE_VEHICLES[] > 0 &&
-                        println("Véhicules de la référence : ",
-                                REFERENCE_VEHICLES[])
+                        println("Véhicules de la référence : ", REFERENCE_VEHICLES[])
                     println()
                     return value
                 end
             end
 
-            # Si aucun coût n'est indiqué, tente les lignes Route #k: ...
-            routes = Vector{Vector{Int}}()
-
-            for raw in lines
-                m = match(r"(?i)^\s*route\s*#?\s*\d+\s*:\s*(.*)$", raw)
-                m === nothing && continue
-
-                tokens = split(strip(m.captures[1]))
-                ids = tryparse.(Int, tokens)
-                any(isnothing, ids) && continue
-
-                route = Int[x for x in ids]
-
-                # Accepte un dépôt explicitement indiqué aux extrémités.
-                if !isempty(route) && first(route) == 0
-                    popfirst!(route)
-                end
-                if !isempty(route) && last(route) == 0
-                    pop!(route)
-                end
-
-                isempty(route) || push!(routes, route)
-            end
-
-            if !isempty(routes)
+            # 2) Sinon, coût recalculé depuis les routes (si elles sont valides).
+            if !isempty(routes) && length(routes) <= inst.nb_vehicles
                 rs = [empty_route() for _ in 1:inst.nb_vehicles]
+                for (i, ids) in enumerate(routes)
+                    rs[i].customers = ids
+                end
+                reference = Solution(rs, zeros(Int, length(inst.customers)))
 
-                if length(routes) <= length(rs)
-                    for (i, ids) in enumerate(routes)
-                        rs[i].customers = ids
-                    end
-
-                    reference = Solution(rs, zeros(Int, length(inst.customers)))
-
-                    if validate!(reference, inst)
-                        value = distance(reference)
-                        REFERENCE_VEHICLES[] = length(routes)
-                        println(
-                            "Coût recalculé depuis les routes : ",
-                            @sprintf("%.6f", value)
-                        )
-                        println()
-                        return value
-                    end
+                if validate!(reference, inst)
+                    REFERENCE_VEHICLES[] = length(routes)
+                    println("Coût recalculé depuis les routes : ",
+                            @sprintf("%.6f", distance(reference)))
+                    println()
+                    return distance(reference)
                 end
             end
 
@@ -473,23 +405,20 @@ function read_reference(instance_path::String, inst::Instance)
         end
     end
 
-    if isempty(candidates)
-        println("Aucune référence trouvée pour ", base, ".")
-        println("Chemin attendu : ", joinpath(dir, base * ".sol"))
-    end
-
-    println("Arrêt sur gap désactivé.")
-    println("Toutes les itérations seront exécutées.")
-    println("La meilleure solution sera enregistrée à la fin.")
+    isempty(candidates) &&
+        println("Aucune référence trouvée pour ", base, " (attendue : ",
+                joinpath(dir, base * ".sol"), ").")
+    println("Arrêt sur gap désactivé : toutes les itérations seront exécutées.")
     println()
-
     return nothing
 end
 
 # ============================================================================
-# Insertions : routes candidates et regret-2
+# Réparation : insertion gloutonne et regret-2
 # ============================================================================
 
+# Routes où essayer d'insérer `id` : celles de ses plus proches voisins, plus
+# une route vide (pour pouvoir ouvrir un véhicule).
 function candidate_routes(s::Solution, id::Int, inst::Instance;
                           allow_empty::Bool = true)
     selected = falses(length(s.routes))
@@ -507,6 +436,8 @@ function candidate_routes(s::Solution, id::Int, inst::Instance;
     return findall(selected)
 end
 
+# Meilleure position d'insertion de `id` dans la route r : (position, surcoût),
+# ou (0, Inf) si aucune position n'est faisable.
 function route_option(r::Route, id::Int, inst::Instance)
     best_delta = Inf
     best_pos = 0
@@ -523,8 +454,7 @@ function route_option(r::Route, id::Int, inst::Instance)
     for pos in first_pos:(n + 1)
         if pos > 1
             prev = r.customers[pos - 1]
-            r.earliest[pos - 1] + inst.customers[prev + 1].service >
-                c.due + EPS && break
+            r.earliest[pos - 1] + inst.customers[prev + 1].service > c.due + EPS && break
         end
 
         can_insert(r, pos, id, inst) || continue
@@ -539,13 +469,15 @@ function route_option(r::Route, id::Int, inst::Instance)
     return best_pos, best_delta
 end
 
+# Toutes les insertions possibles de `id`, triées par score (surcoût, plus une
+# pénalité si on ouvre un nouveau véhicule). `full` teste toutes les routes ;
+# on y passe automatiquement si les routes voisines ne conviennent pas.
 function insertion_options(s::Solution, id::Int, inst::Instance;
                            full::Bool = false,
                            allow_empty::Bool = true,
                            opening_penalty::Float64 = 1000.0)
     indices = full ? collect(eachindex(s.routes)) :
-                     candidate_routes(s, id, inst;
-                                      allow_empty = allow_empty)
+                     candidate_routes(s, id, inst; allow_empty = allow_empty)
 
     options = Tuple{Float64,Int,Int}[]
     empty_tested = false
@@ -553,7 +485,7 @@ function insertion_options(s::Solution, id::Int, inst::Instance;
     for ri in indices
         r = s.routes[ri]
 
-        if isempty(r.customers)
+        if isempty(r.customers)   # une seule route vide suffit à tester
             allow_empty || continue
             empty_tested && continue
             empty_tested = true
@@ -561,36 +493,38 @@ function insertion_options(s::Solution, id::Int, inst::Instance;
 
         pos, delta = route_option(r, id, inst)
         pos == 0 && continue
-
-        score = delta + (isempty(r.customers) ? opening_penalty : 0.0)
-        push!(options, (score, ri, pos))
+        push!(options, (delta + (isempty(r.customers) ? opening_penalty : 0.0), ri, pos))
     end
 
     sort!(options, by = first)
 
-    if isempty(options) && !full
-        return insertion_options(
-            s, id, inst;
-            full = true,
-            allow_empty = allow_empty,
-            opening_penalty = opening_penalty
-        )
-    end
-
+    isempty(options) && !full &&
+        return insertion_options(s, id, inst; full = true, allow_empty = allow_empty,
+                                 opening_penalty = opening_penalty)
     return options
 end
 
-# Même résultat que insertion_options (hors mode full), mais réutilise le
-# résultat de route_option tant que la route n'a pas changé : versions[ri]
-# est incrémenté à chaque insertion dans la route ri, et le cache
-# (c_ver, c_pos, c_delta) est indexé par (emplacement du client, route).
+# Cache du regret-2 : le résultat de route_option est réutilisé tant que la
+# route n'a pas changé. versions[ri] augmente à chaque insertion dans la route
+# ri ; ver/pos/delta sont indexés par (emplacement du client, route).
+struct RegretCache
+    ver::Matrix{Int}
+    pos::Matrix{Int}
+    delta::Matrix{Float64}
+    versions::Vector{Int}
+    seen::Vector{Int}          # marque les routes déjà candidates (par `stamp`)
+    cands::Vector{Int}
+    stamp::Base.RefValue{Int}
+end
+
+# Même résultat que insertion_options (hors mode full), avec le cache, et sans
+# allocation : renvoie (meilleur score, route, position, deuxième score).
 function regret_options(s::Solution, id::Int, slot::Int, inst::Instance,
-                        allow_empty::Bool, versions::Vector{Int},
-                        c_ver::Matrix{Int}, c_pos::Matrix{Int},
-                        c_delta::Matrix{Float64},
-                        seen::Vector{Int}, stamp::Int, cands::Vector{Int};
+                        allow_empty::Bool, cache::RegretCache;
                         opening_penalty::Float64 = 1000.0)
-    ncols = size(c_ver, 2)
+    (; ver, pos, delta, versions, seen, cands) = cache
+    ncols = size(ver, 2)
+    stamp = (cache.stamp[] += 1)
     empty!(cands)
 
     for neighbor in inst.neighbors[id + 1]
@@ -609,145 +543,135 @@ function regret_options(s::Solution, id::Int, slot::Int, inst::Instance,
         end
     end
 
-    # Deux meilleurs scores seulement (sans allocation ni tri).
+    # Deux meilleurs scores seulement (sans tri).
     c1 = Inf; ri1 = 0; pos1 = 0
     c2 = Inf
     empty_tested = false
 
     for ri in cands
         r = s.routes[ri]
-        empty_route = isempty(r.customers)
+        is_empty = isempty(r.customers)
 
-        if empty_route
+        if is_empty
             allow_empty || continue
             empty_tested && continue
             empty_tested = true
         end
 
         if ri <= ncols
-            if c_ver[slot, ri] != versions[ri]
-                c_pos[slot, ri], c_delta[slot, ri] =
-                    route_option(r, id, inst)
-                c_ver[slot, ri] = versions[ri]
+            if ver[slot, ri] != versions[ri]
+                pos[slot, ri], delta[slot, ri] = route_option(r, id, inst)
+                ver[slot, ri] = versions[ri]
             end
-            pos = c_pos[slot, ri]
-            delta = c_delta[slot, ri]
+            p, d = pos[slot, ri], delta[slot, ri]
         else
-            pos, delta = route_option(r, id, inst)
+            p, d = route_option(r, id, inst)
         end
 
-        pos == 0 && continue
+        p == 0 && continue
 
-        score = delta + (empty_route ? opening_penalty : 0.0)
+        score = d + (is_empty ? opening_penalty : 0.0)
         if score < c1
             c2 = c1
-            c1 = score; ri1 = ri; pos1 = pos
+            c1 = score; ri1 = ri; pos1 = p
         elseif score < c2
             c2 = score
         end
     end
 
-    if ri1 == 0
-        options = insertion_options(
-            s, id, inst;
-            full = true,
-            allow_empty = allow_empty,
-            opening_penalty = opening_penalty
-        )
+    if ri1 == 0   # aucune route voisine ne convient : on teste toutes les routes
+        options = insertion_options(s, id, inst; full = true, allow_empty = allow_empty,
+                                    opening_penalty = opening_penalty)
         isempty(options) && return Inf, 0, 0, Inf
-        length(options) == 1 && return options[1][1], options[1][2],
-                                       options[1][3], Inf
+        length(options) == 1 && return options[1][1], options[1][2], options[1][3], Inf
         return options[1][1], options[1][2], options[1][3], options[2][1]
     end
 
     return c1, ri1, pos1, c2
 end
 
-function repair!(s::Solution, removed::Vector{Int}, inst::Instance,
-                 rng::AbstractRNG, method::Int;
-                 allow_empty::Bool = true)
-    remaining = copy(removed)
+# Réinsertion gloutonne : clients dans un ordre aléatoire, chacun à une des
+# meilleures positions (au hasard parmi celles à moins de 5 % du meilleur score).
+function repair_greedy!(s::Solution, removed::Vector{Int}, inst::Instance,
+                        rng::AbstractRNG, allow_empty::Bool)
+    remaining = shuffle!(rng, copy(removed))
 
-    if method == 1
-        shuffle!(rng, remaining)
+    for id in remaining
+        options = insertion_options(s, id, inst; allow_empty = allow_empty)
+        isempty(options) && return false
 
-        for id in remaining
-            options = insertion_options(
-                s, id, inst; allow_empty = allow_empty
-            )
-            isempty(options) && return false
+        best_score = options[1][1]
+        limit = best_score + max(1.0, abs(best_score) * 0.05)
+        count_close = count(o -> o[1] <= limit, options)
+        _, ri, pos = options[rand(rng, 1:max(1, count_close))]
 
-            # Petite diversification parmi les insertions proches du meilleur.
-            best_score = options[1][1]
-            limit = best_score + max(1.0, abs(best_score) * 0.05)
-            count_close = count(o -> o[1] <= limit, options)
-            chosen = options[rand(rng, 1:max(1, count_close))]
-            _, ri, pos = chosen
-
-            insert_at!(s, ri, pos, id, inst)
-        end
-    else
-        # Cache des positions : seules les routes modifiées sont recalculées.
-        last_used = findlast(r -> !isempty(r.customers), s.routes)
-        last_used === nothing && (last_used = 0)
-        ncols = min(length(s.routes), last_used + 2 + length(removed))
-        c_ver = fill(-1, length(removed), ncols)
-        c_pos = zeros(Int, length(removed), ncols)
-        c_delta = zeros(Float64, length(removed), ncols)
-        versions = zeros(Int, length(s.routes))
-        slots = collect(1:length(removed))
-        seen = zeros(Int, length(s.routes))
-        stamp = 0
-        cands = Int[]
-
-        while !isempty(remaining)
-            chosen_index = 0
-            chosen_route = 0
-            chosen_pos = 0
-            max_regret = -Inf
-            tie_cost = Inf
-
-            for (i, id) in enumerate(remaining)
-                stamp += 1
-                first_cost, ri, pos, second_cost = regret_options(
-                    s, id, slots[i], inst, allow_empty,
-                    versions, c_ver, c_pos, c_delta, seen, stamp, cands
-                )
-                ri == 0 && return false
-
-                regret = second_cost == Inf ?
-                    1e12 : second_cost - first_cost
-
-                if regret > max_regret ||
-                   (regret == max_regret && first_cost < tie_cost)
-                    max_regret = regret
-                    tie_cost = first_cost
-                    chosen_index = i
-                    chosen_route = ri
-                    chosen_pos = pos
-                end
-            end
-
-            id = remaining[chosen_index]
-            insert_at!(s, chosen_route, chosen_pos, id, inst)
-            versions[chosen_route] += 1
-            deleteat!(remaining, chosen_index)
-            deleteat!(slots, chosen_index)
-        end
+        insert_at!(s, ri, pos, id, inst)
     end
 
     return true
 end
 
-function initial_solution(inst::Instance, rng::AbstractRNG;
-                          noise::Float64 = 0.0)
+# Réinsertion par regret-2 : à chaque étape on insère le client qui "perdrait
+# le plus" s'il n'obtenait pas sa meilleure route (écart entre ses deux
+# meilleures options). Évite de laisser les clients difficiles pour la fin.
+function repair_regret!(s::Solution, removed::Vector{Int}, inst::Instance,
+                        allow_empty::Bool)
+    remaining = copy(removed)
+    last_used = something(findlast(r -> !isempty(r.customers), s.routes), 0)
+    ncols = min(length(s.routes), last_used + 2 + length(removed))
+    cache = RegretCache(
+        fill(-1, length(removed), ncols), zeros(Int, length(removed), ncols),
+        zeros(Float64, length(removed), ncols), zeros(Int, length(s.routes)),
+        zeros(Int, length(s.routes)), Int[], Ref(0)
+    )
+    slots = collect(1:length(removed))
+
+    while !isempty(remaining)
+        chosen_index = chosen_route = chosen_pos = 0
+        max_regret = -Inf
+        tie_cost = Inf
+
+        for (i, id) in enumerate(remaining)
+            first_cost, ri, pos, second_cost =
+                regret_options(s, id, slots[i], inst, allow_empty, cache)
+            ri == 0 && return false
+
+            regret = second_cost == Inf ? 1e12 : second_cost - first_cost
+
+            if regret > max_regret || (regret == max_regret && first_cost < tie_cost)
+                max_regret = regret
+                tie_cost = first_cost
+                chosen_index, chosen_route, chosen_pos = i, ri, pos
+            end
+        end
+
+        insert_at!(s, chosen_route, chosen_pos, remaining[chosen_index], inst)
+        cache.versions[chosen_route] += 1
+        deleteat!(remaining, chosen_index)
+        deleteat!(slots, chosen_index)
+    end
+
+    return true
+end
+
+# method 1 = glouton, 2 = regret-2.
+repair!(s::Solution, removed::Vector{Int}, inst::Instance, rng::AbstractRNG,
+        method::Int; allow_empty::Bool = true) =
+    method == 1 ? repair_greedy!(s, removed, inst, rng, allow_empty) :
+                  repair_regret!(s, removed, inst, allow_empty)
+
+# ============================================================================
+# Solution initiale (point de départ de chaque chaîne)
+# ============================================================================
+
+# Insertion gloutonne dans l'ordre des échéances. `noise` > 0 perturbe cet
+# ordre : chaque chaîne démarre alors d'une solution différente (multi-start).
+function initial_solution(inst::Instance, rng::AbstractRNG; noise::Float64 = 0.0)
     n = length(inst.customers) - 1
 
-    # noise > 0 perturbe l'ordre d'insertion (départs différents par chaîne).
     horizon = inst.customers[1].due
     ids = collect(1:n)
-    key = [inst.customers[id + 1].due + noise * horizon * rand(rng)
-           for id in ids]
+    key = [inst.customers[id + 1].due + noise * horizon * rand(rng) for id in ids]
     sort!(ids, by = id -> (key[id], inst.customers[id + 1].ready))
 
     # On essaie d'abord avec la limite de véhicules de l'instance. Si les
@@ -755,110 +679,93 @@ function initial_solution(inst::Instance, rng::AbstractRNG;
     # donne temporairement des routes en plus : la recherche (objectif
     # véhicules d'abord) ramène ensuite le nombre de véhicules sous la limite.
     slots = inst.nb_vehicles
-    blocked = 0
 
     while true
-        s = Solution(
-            [empty_route() for _ in 1:slots],
-            zeros(Int, length(inst.customers))
-        )
+        s = Solution([empty_route() for _ in 1:slots], zeros(Int, length(inst.customers)))
         blocked = 0
 
         for id in ids
             options = insertion_options(s, id, inst; full = true)
-
             if isempty(options)
                 blocked = id
                 break
             end
-
             _, ri, pos = options[1]
             insert_at!(s, ri, pos, id, inst)
         end
 
         if blocked == 0
-            validate!(s, inst; limit = slots) ||
-                error("Solution initiale non valide.")
+            validate!(s, inst; limit = slots) || error("Solution initiale non valide.")
             slots > inst.nb_vehicles &&
-                println("Construction initiale : ", slots, " routes ",
-                        "nécessaires (limite ", inst.nb_vehicles,
-                        "), la recherche doit redescendre sous la limite.")
+                println("Construction initiale : ", slots, " routes nécessaires (limite ",
+                        inst.nb_vehicles, "), la recherche doit redescendre sous la limite.")
             return s
         end
 
-        slots >= n &&
-            error("Construction initiale impossible pour le client $blocked.")
+        slots >= n && error("Construction initiale impossible pour le client $blocked.")
         slots = min(n, slots + max(1, inst.nb_vehicles ÷ 2))
     end
 end
 
 # ============================================================================
-# Destruction : random, worst, route, related, string
+# Destruction : 1 aléatoire, 2 pire, 3 route, 4 Shaw (proches), 5 string
 # ============================================================================
 
-function destroy!(s::Solution, inst::Instance, rng::AbstractRNG,
-                  method::Int, q::Int)
-    ids = [id for id in 1:(length(inst.customers) - 1)
-           if s.route_of[id + 1] > 0]
+# Retire q clients de la solution et renvoie leurs identifiants.
+function destroy!(s::Solution, inst::Instance, rng::AbstractRNG, method::Int, q::Int)
+    ids = [id for id in 1:(length(inst.customers) - 1) if s.route_of[id + 1] > 0]
     isempty(ids) && return Int[]
 
     q = min(q, length(ids))
     chosen = Int[]
 
-    if method == 1
+    if method == 1          # aléatoire : q clients au hasard
         shuffle!(rng, ids)
         chosen = ids[1:q]
 
-    elseif method == 2
+    elseif method == 2      # pire : clients dont le retrait économise le plus
         shuffle!(rng, ids)
         resize!(ids, min(length(ids), max(100, 4q)))
 
         ranked = Tuple{Float64,Int}[]
         for id in ids
-            ri = s.route_of[id + 1]
-            r = s.routes[ri]
-            pos = findfirst(==(id), r.customers)
-            push!(ranked, (removal_gain(r, pos, inst), id))
+            r = s.routes[s.route_of[id + 1]]
+            push!(ranked, (removal_gain(r, findfirst(==(id), r.customers), inst), id))
         end
-
         sort!(ranked, by = x -> -x[1])
 
+        # Tirage biaisé vers le haut du classement (rand^3).
         while length(chosen) < q && !isempty(ranked)
-            k = min(length(ranked),
-                    1 + floor(Int, rand(rng)^3 * length(ranked)))
+            k = min(length(ranked), 1 + floor(Int, rand(rng)^3 * length(ranked)))
             push!(chosen, ranked[k][2])
             deleteat!(ranked, k)
         end
 
-    elseif method == 3
+    elseif method == 3      # route : vide une des 8 plus petites routes
         nonempty = findall(r -> !isempty(r.customers), s.routes)
         sort!(nonempty, by = ri -> length(s.routes[ri].customers))
         pool = nonempty[1:min(8, length(nonempty))]
-        ri = rand(rng, pool)
-        chosen = copy(s.routes[ri].customers)
+        chosen = copy(s.routes[rand(rng, pool)].customers)
 
-    elseif method == 4
+    elseif method == 4      # Shaw : clients proches en distance et en horaire
         seed = rand(rng, ids)
         c = inst.customers[seed + 1]
         scale_distance = max(1.0, maximum(@view inst.travel[seed + 1, :]))
-        scale_time = max(1.0, inst.customers[1].due -
-                              inst.customers[1].ready)
+        scale_time = max(1.0, inst.customers[1].due - inst.customers[1].ready)
 
         # Clé calculée une seule fois par client (et non à chaque comparaison).
         key = Vector{Float64}(undef, length(inst.customers))
         for id in ids
-            key[id + 1] =
-                inst.travel[seed + 1, id + 1] / scale_distance +
-                abs(inst.customers[id + 1].ready - c.ready) / scale_time
+            key[id + 1] = inst.travel[seed + 1, id + 1] / scale_distance +
+                          abs(inst.customers[id + 1].ready - c.ready) / scale_time
         end
 
         partialsort!(ids, 1:q, by = id -> key[id + 1])
         chosen = ids[1:q]
 
-    else
+    else                    # string : petites séquences consécutives autour d'un client
         seed = rand(rng, ids)
-        pool = unique(vcat([seed], inst.neighbors[seed + 1],
-                           shuffle!(rng, ids)))
+        pool = unique(vcat([seed], inst.neighbors[seed + 1], shuffle!(rng, ids)))
         selected = Set{Int}()
 
         for id in pool
@@ -880,21 +787,17 @@ function destroy!(s::Solution, inst::Instance, rng::AbstractRNG,
         end
     end
 
-    for id in chosen
-        remove_id!(s, id, inst)
-    end
-
+    foreach(id -> remove_id!(s, id, inst), chosen)
     return chosen
 end
 
 # ============================================================================
-# Recherche locale légère
+# Recherche locale légère : déplace un client vers une meilleure position
 # ============================================================================
 
 function relocate!(s::Solution, inst::Instance, rng::AbstractRNG;
                    max_tests::Int = 100, max_moves::Int = 15)
-    ids = collect(1:(length(inst.customers) - 1))
-    shuffle!(rng, ids)
+    ids = shuffle!(rng, collect(1:(length(inst.customers) - 1)))
     moves = 0
 
     for id in ids[1:min(max_tests, length(ids))]
@@ -911,26 +814,23 @@ function relocate!(s::Solution, inst::Instance, rng::AbstractRNG;
         indices = candidate_routes(s, id, inst)
         ri in indices || push!(indices, ri)
 
+        # Meilleur changement : (véhicule ouvert moins véhicule fermé, distance).
         best_change = (0, -EPS)
-        target_route = 0
-        target_pos = 0
+        target_route = target_pos = 0
 
         for target in indices
             tr = s.routes[target]
             p, delta = route_option(tr, id, inst)
             p == 0 && continue
 
-            new_vehicle = isempty(tr.customers) ? 1 : 0
-            change = (new_vehicle - old_vehicle, delta - gain)
-
+            change = ((isempty(tr.customers) ? 1 : 0) - old_vehicle, delta - gain)
             if isless(change, best_change)
                 best_change = change
-                target_route = target
-                target_pos = p
+                target_route, target_pos = target, p
             end
         end
 
-        if target_route == 0
+        if target_route == 0   # aucun gain : le client retourne à sa place
             insert_at!(s, ri, pos, id, inst)
         else
             insert_at!(s, target_route, target_pos, id, inst)
@@ -943,9 +843,10 @@ function relocate!(s::Solution, inst::Instance, rng::AbstractRNG;
 end
 
 # ============================================================================
-# Poids adaptatifs
+# Poids adaptatifs : les opérateurs efficaces sont tirés plus souvent
 # ============================================================================
 
+# Tirage proportionnel aux poids (roulette).
 function choose_operator(weights::Vector{Float64}, rng::AbstractRNG)
     x = rand(rng) * sum(weights)
     cumulative = 0.0
@@ -958,14 +859,11 @@ function choose_operator(weights::Vector{Float64}, rng::AbstractRNG)
     return lastindex(weights)
 end
 
+# Tous les 100 tours : poids = 80 % ancien poids + 20 % score moyen obtenu.
 function update_weights!(weights, scores, uses)
     for i in eachindex(weights)
-        if uses[i] > 0
-            weights[i] = max(
-                0.1,
-                0.8 * weights[i] + 0.2 * scores[i] / uses[i]
-            )
-        end
+        uses[i] > 0 &&
+            (weights[i] = max(0.1, 0.8 * weights[i] + 0.2 * scores[i] / uses[i]))
     end
 
     fill!(scores, 0.0)
@@ -973,13 +871,12 @@ function update_weights!(weights, scores, uses)
 end
 
 # ============================================================================
-# Export : ne remplace jamais le fichier de référence
+# Export de la solution (ne remplace jamais le fichier de référence)
 # ============================================================================
 
 function output_path(instance_path::String)
     dir = dirname(abspath(instance_path))
-    base = splitext(basename(instance_path))[1]
-    return joinpath(dir, base * "_alns.sol")
+    return joinpath(dir, splitext(basename(instance_path))[1] * "_alns.sol")
 end
 
 function write_solution(path::String, s::Solution)
@@ -990,10 +887,8 @@ function write_solution(path::String, s::Solution)
         for r in s.routes
             isempty(r.customers) && continue
             route_number += 1
-            println(io, "Route #", route_number, ": ",
-                    join(r.customers, " "))
+            println(io, "Route #", route_number, ": ", join(r.customers, " "))
         end
-
         @printf(io, "Cost: %.6f\n", distance(s))
     end
 
@@ -1001,7 +896,7 @@ function write_solution(path::String, s::Solution)
 end
 
 # ============================================================================
-# État partagé : publication, arrêt et migration
+# État partagé entre chaînes : publication de la meilleure solution et arrêt
 # ============================================================================
 
 function publish!(shared::SharedState, candidate::Solution,
@@ -1016,27 +911,13 @@ function publish!(shared::SharedState, candidate::Solution,
     lock(shared.mutex) do
         shared.stop[] && return nothing
 
-        improved = shared.best === nothing ||
-                   better(checked, shared.best)
-
-        if improved
+        if shared.best === nothing || better(checked, shared.best)
             shared.best = copy_solution(checked)
-            elapsed = time() - shared.started
-
-            if reference === nothing
-                @printf(
-                    "[%.1f s] chaîne %d, it. %d | véhicules %d | distance %.2f\n",
-                    elapsed, chain_id, iteration,
-                    vehicles(checked), distance(checked)
-                )
-            else
-                gap = 100 * (distance(checked) / reference - 1)
-                @printf(
-                    "[%.1f s] chaîne %d, it. %d | véhicules %d | distance %.2f | gap distance %.2f %%\n",
-                    elapsed, chain_id, iteration,
-                    vehicles(checked), distance(checked), gap
-                )
-            end
+            gap_text = reference === nothing ? "" :
+                @sprintf(" | gap distance %.2f %%", 100 * (distance(checked) / reference - 1))
+            @printf("[%.1f s] chaîne %d, it. %d | véhicules %d | distance %.2f%s\n",
+                    time() - shared.started, chain_id, iteration,
+                    vehicles(checked), distance(checked), gap_text)
         end
 
         # Arrêt sur gap uniquement si un seuil fini a été demandé.
@@ -1049,10 +930,7 @@ function publish!(shared::SharedState, candidate::Solution,
             # de véhicules que la référence. Avec plus de véhicules la distance
             # est trompeuse ; avec moins, la distance n'est pas comparable à la
             # référence : on continue jusqu'à la limite de temps.
-            reached = gap <= target_gap + 1e-12 &&
-                      (ref_veh == 0 || vehicles(checked) <= ref_veh)
-
-            if reached
+            if gap <= target_gap + 1e-12 && (ref_veh == 0 || vehicles(checked) <= ref_veh)
                 # Enregistre exactement la solution qui atteint la cible.
                 shared.target_solution = copy_solution(checked)
                 write_solution(path, checked)
@@ -1067,6 +945,7 @@ function publish!(shared::SharedState, candidate::Solution,
     end
 end
 
+# Copie de la meilleure solution commune (migration entre chaînes).
 function import_best(shared::SharedState)
     return lock(shared.mutex) do
         shared.best === nothing ? nothing : copy_solution(shared.best)
@@ -1074,12 +953,23 @@ function import_best(shared::SharedState)
 end
 
 # ============================================================================
-# Une chaîne ALNS
+# Une chaîne ALNS : destruction, réparation, acceptation par recuit simulé
 # ============================================================================
 
 # Somme des carrés du nombre de clients par route : plus elle est grande,
 # plus les routes sont inégales (quelques routes pleines, une très petite).
 sumsq(s::Solution) = sum(r -> abs2(length(r.customers)), s.routes)
+
+# Taille de la destruction : petite en temps normal, grande après 500
+# itérations sans amélioration (diversification).
+function destruction_size(rng::AbstractRNG, n::Int, stagnation::Int, q_scale::Float64)
+    small = max(3, min(20, n ÷ 40))
+    large = max(small, min(60, n ÷ 10))
+
+    q = stagnation > 500 ? rand(rng, small:large) :
+                           rand(rng, max(2, small ÷ 2):max(3, 2small))
+    return min(n, max(2, round(Int, q * q_scale)))
+end
 
 function run_chain(inst::Instance, shared::SharedState,
                    reference::Union{Nothing,Float64},
@@ -1092,38 +982,24 @@ function run_chain(inst::Instance, shared::SharedState,
                    q_scale::Float64 = 1.0,
                    time_limit::Float64 = Inf)
     rng = MersenneTwister(seed)
-    current = initial_solution(
-        inst, rng; noise = chain_id == 1 ? 0.0 : 0.1
-    )
+
+    # Multi-start : la chaîne 1 part de la construction exacte, les autres d'une
+    # construction perturbée (noise), donc de solutions différentes.
+    current = initial_solution(inst, rng; noise = chain_id == 1 ? 0.0 : 0.1)
     best = copy_solution(current)
+    publish!(shared, best, inst, reference, target_gap, path, chain_id, 0)
 
-    publish!(
-        shared, best, inst, reference, target_gap, path, chain_id, 0
-    )
+    # Poids et scores des 5 opérateurs de destruction et des 2 de réparation.
+    dw, ds, du = ones(5), zeros(5), zeros(Int, 5)
+    rw, rs, ru = ones(2), zeros(2), zeros(Int, 2)
 
-    dw = ones(5)
-    ds = zeros(5)
-    du = zeros(Int, 5)
-
-    rw = ones(2)
-    rs = zeros(2)
-    ru = zeros(Int, 2)
-
-    # Diagnostic (ALNS_DIAG=1) : colonnes = utilisations, réparations
-    # réussies, acceptées, nouveaux meilleurs, temps en ns.
-    diag = get(ENV, "ALNS_DIAG", "") == "1"
-    d_stat = zeros(5, 5)
-    r_stat = zeros(2, 5)
-    n_adopt = 0
-    n_restart = 0
-    n_restart_global = 0
-
+    # Recuit simulé : température de départ proportionnelle à la distance.
     initial_temperature = max(2.0, distance(current) * t0_factor)
     temperature = initial_temperature
     cooling = exp(log(t_end) / max(1, max_iterations))
     last_progress = 0.0
 
-    stagnation = 0
+    stagnation = 0   # itérations depuis la dernière amélioration de `best`
     completed = 0
     n = length(inst.customers) - 1
 
@@ -1132,126 +1008,82 @@ function run_chain(inst::Instance, shared::SharedState,
         isfinite(time_limit) && time() - shared.started >= time_limit && break
         completed = iteration
 
-        # Migration : conserve une exploration locale entre deux échanges.
-        # Rare et seulement en cas de stagnation, pour garder des chaînes
-        # différentes les unes des autres.
+        # Migration : rare et seulement en cas de stagnation, pour garder des
+        # chaînes différentes les unes des autres.
         if migration > 0 && iteration % migration == 0 && stagnation >= 500
             imported = import_best(shared)
 
             if imported !== nothing && better(imported, best)
                 best = copy_solution(imported)
                 current = copy_solution(imported)
-                n_adopt += 1
-                temperature = max(
-                    temperature, initial_temperature * 0.3
-                )
+                temperature = max(temperature, initial_temperature * 0.3)
             end
         end
 
+        # Choix des opérateurs (roulette sur les poids) et de la taille q.
         di = choose_operator(dw, rng)
         rj = choose_operator(rw, rng)
         du[di] += 1
         ru[rj] += 1
+        q = destruction_size(rng, n, stagnation, q_scale)
 
-        small = max(3, min(20, n ÷ 40))
-        large = max(small, min(60, n ÷ 10))
-
-        q = stagnation > 500 ?
-            rand(rng, small:large) :
-            rand(rng, max(2, small ÷ 2):max(3, 2small))
-
-        q = min(n, max(2, round(Int, q * q_scale)))
+        # Destruction puis réparation sur une copie de la solution courante.
+        # L'opérateur « route » essaie réellement de supprimer un véhicule en
+        # interdisant parfois l'ouverture d'une route vide.
         trial = copy_solution(current)
-        t_a = time_ns()
         removed = destroy!(trial, inst, rng, di, q)
-        t_b = time_ns()
-
-        # Certaines destructions de route essaient réellement de supprimer
-        # un véhicule en interdisant l'ouverture d'une route vide.
         allow_empty = !(di == 3 && rand(rng) < 0.5)
-
         success = !isempty(removed) &&
-                  repair!(
-                      trial, removed, inst, rng, rj;
-                      allow_empty = allow_empty
-                  )
-
-        t_c = time_ns()
-        d_stat[di, 1] += 1
-        d_stat[di, 5] += t_b - t_a
-        r_stat[rj, 1] += 1
-        r_stat[rj, 5] += t_c - t_b
-        if success
-            d_stat[di, 2] += 1
-            r_stat[rj, 2] += 1
-        end
+                  repair!(trial, removed, inst, rng, rj; allow_empty = allow_empty)
 
         reward = 0.0
         stagnation += 1
 
         if success
-            if iteration % 25 == 0
-                relocate!(trial, inst, rng)
-            end
+            iteration % 25 == 0 && relocate!(trial, inst, rng)
 
+            # Acceptation : moins de véhicules toujours, plus jamais ; à nombre
+            # égal, recuit simulé sur la distance (+ bonus de consolidation).
             old_k = vehicles(current)
             new_k = vehicles(trial)
-            delta_distance = distance(trial) - distance(current)
 
-            accepted = if new_k < old_k
-                true
-            elseif new_k > old_k
-                false
+            accepted = if new_k != old_k
+                new_k < old_k
             else
-                # Bonus de consolidation (acceptation seulement) : favorise
-                # les solutions où une route se vide, pour pouvoir la
-                # supprimer. consolidation = 0 redonne le comportement d'avant.
-                delta = delta_distance
-                if consolidation > 0
-                    delta -= consolidation * temperature *
-                             (sumsq(trial) - sumsq(current)) /
-                             (2 * (n / max(1, old_k)))
-                end
-
-                delta <= 0 ||
-                rand(rng) < exp(-delta / max(temperature, 1e-9))
+                delta = distance(trial) - distance(current)
+                consolidation > 0 && (delta -= consolidation * temperature *
+                                      (sumsq(trial) - sumsq(current)) /
+                                      (2 * (n / max(1, old_k))))
+                delta <= 0 || rand(rng) < exp(-delta / max(temperature, 1e-9))
             end
 
             if accepted
-                d_stat[di, 3] += 1
-                r_stat[rj, 3] += 1
-                improved_current = better(trial, current)
+                reward = better(trial, current) ? 3.0 : 0.5
                 current = trial
-                reward = improved_current ? 3.0 : 0.5
 
                 if better(current, best)
-                    d_stat[di, 4] += 1
-                    r_stat[rj, 4] += 1
                     best = copy_solution(current)
                     reward = 8.0
                     stagnation = 0
-
-                    publish!(
-                        shared, best, inst, reference,
-                        target_gap, path, chain_id, iteration
-                    )
+                    publish!(shared, best, inst, reference, target_gap, path,
+                             chain_id, iteration)
                 elseif reference !== nothing &&
                        distance(current) <= reference * (1 + target_gap)
                     # Une solution peut atteindre la cible distance sans
                     # améliorer l'objectif lexicographique de la chaîne.
-                    publish!(
-                        shared, current, inst, reference,
-                        target_gap, path, chain_id, iteration
-                    )
+                    publish!(shared, current, inst, reference, target_gap, path,
+                             chain_id, iteration)
                 end
             end
         end
 
         ds[di] += reward
         rs[rj] += reward
+
+        # Refroidissement. Avec une limite de temps, le recuit suit le temps :
+        # il finit de refroidir à la limite (ou au dernier tour, si les
+        # itérations s'épuisent avant).
         if isfinite(time_limit)
-            # Le recuit suit le temps : il finit de refroidir à la limite de
-            # temps (ou au dernier tour, si les itérations s'épuisent avant).
             progress = max(iteration / max_iterations,
                            (time() - shared.started) / time_limit)
             temperature *= t_end^max(0.0, progress - last_progress)
@@ -1260,49 +1092,20 @@ function run_chain(inst::Instance, shared::SharedState,
             temperature *= cooling
         end
 
-        # Toujours effectué, même après une réparation échouée.
+        # Mise à jour des poids (même après une réparation échouée).
         if iteration % 100 == 0
             update_weights!(dw, ds, du)
             update_weights!(rw, rs, ru)
         end
 
+        # Reprise après 1500 itérations sans amélioration : sur son propre
+        # meilleur (1 fois sur 2) ou sur le meilleur global, avec un
+        # réchauffage partiel seulement.
         if stagnation >= 1500
-            # Reprise sur son propre meilleur (1 fois sur 2) ou sur le
-            # meilleur global, avec un réchauffage partiel seulement.
-            imported = migration > 0 && rand(rng) < 0.5 ?
-                       import_best(shared) : nothing
-            n_restart += 1
-            imported === nothing || (n_restart_global += 1)
-            current = imported === nothing ?
-                copy_solution(best) : imported
+            imported = migration > 0 && rand(rng) < 0.5 ? import_best(shared) : nothing
+            current = imported === nothing ? copy_solution(best) : imported
             temperature = max(temperature, initial_temperature * 0.3)
             stagnation = 0
-        end
-    end
-
-    if diag
-        lock(shared.mutex) do
-            println("--- Diagnostic chaîne ", chain_id, " : ",
-                    vehicles(best), " véh., distance ",
-                    round(distance(best); digits = 1), ", ",
-                    completed, " it ---")
-            println("reprises sur stagnation : ", n_restart,
-                    " (dont meilleur global : ", n_restart_global,
-                    "), migrations adoptées : ", n_adopt)
-            println("opérateur            util.  réussi   accepté  meilleur  temps_s  ms/util")
-            names_d = ["destr. aléatoire", "destr. pire", "destr. route",
-                       "destr. Shaw", "destr. string"]
-            names_r = ["rép. glouton", "rép. regret-2"]
-            for (names, st) in ((names_d, d_stat), (names_r, r_stat))
-                for k in eachindex(names)
-                    u = st[k, 1]
-                    println(rpad(names[k], 18),
-                            lpad(Int(u), 8), lpad(Int(st[k, 2]), 8),
-                            lpad(Int(st[k, 3]), 9), lpad(Int(st[k, 4]), 9),
-                            lpad(round(st[k, 5] / 1e9; digits = 2), 9),
-                            lpad(u > 0 ? round(st[k, 5] / 1e6 / u; digits = 3) : 0.0, 9))
-                end
-            end
         end
     end
 
@@ -1310,8 +1113,35 @@ function run_chain(inst::Instance, shared::SharedState,
 end
 
 # ============================================================================
-# Résumé et exécution parallèle
+# Exécution parallèle : lance les chaînes, retient le meilleur, écrit les sorties
 # ============================================================================
+
+# Résumé lu par le backend (clés « Nom: valeur »).
+function write_summary(path::String, inst::Instance, final::Solution,
+                       reference, elapsed, n_chains, max_iterations,
+                       shared::SharedState, results)
+    open(path, "w") do io
+        println(io, "Instance: ", inst.name)
+        println(io, "Vehicles: ", vehicles(final))
+        @printf(io, "Distance: %.6f\n", distance(final))
+        @printf(io, "Elapsed_seconds: %.3f\n", elapsed)
+        println(io, "Chains: ", n_chains)
+        println(io, "Max_iterations_per_chain: ", max_iterations)
+        println(io, "Target_reached: ", shared.stop[])
+
+        if reference !== nothing
+            println(io, "Reference_distance: ", reference)
+            @printf(io, "Distance_gap_percent: %.6f\n",
+                    100 * (distance(final) / reference - 1))
+        else
+            println(io, "Reference_distance: unavailable")
+        end
+
+        for cid in 1:n_chains
+            println(io, "Chain_", cid, "_iterations: ", results[cid][2])
+        end
+    end
+end
 
 function solve_parallel(instance_path::String;
                         max_iterations::Int = 50_000,
@@ -1334,91 +1164,56 @@ function solve_parallel(instance_path::String;
     reference = read_reference(instance_path, inst)
     path = output_path(instance_path)
 
-    println("Threads Julia disponibles : ", Threads.nthreads())
-    println("Nombre de chaînes : ", n_chains)
-    println("Itérations maximales par chaîne : ", max_iterations)
-    isfinite(time_limit) &&
-        @printf("Temps maximal : %.0f s\n", time_limit)
+    println("Threads Julia : ", Threads.nthreads(), " | chaînes : ", n_chains,
+            " | itérations max par chaîne : ", max_iterations)
+    isfinite(time_limit) && @printf("Temps maximal : %.0f s\n", time_limit)
+    Threads.nthreads() < n_chains &&
+        println("Attention : moins de threads que de chaînes. ",
+                "Commande conseillée : julia --threads ", n_chains, " ...")
 
-    if Threads.nthreads() < n_chains
-        println(
-            "Attention : moins de threads que de chaînes. ",
-            "Commande conseillée : julia --threads ", n_chains, " ..."
-        )
-    end
-
-    if !isfinite(target_gap)
-        println("Aucun gap cible demandé.")
-        println("Toutes les itérations seront exécutées.")
-    elseif reference === nothing
-        println("Gap cible demandé, mais référence indisponible.")
-        println("Toutes les itérations seront exécutées.")
+    if isfinite(target_gap) && reference !== nothing
+        @printf("Gap distance cible : %.2f %% (distance %.6f)\n",
+                100 * target_gap, reference * (1 + target_gap))
+        println("Arrêt dès que la distance est dans le gap cible avec au plus ",
+                "autant de véhicules que la référence.")
     else
-        @printf("Gap distance cible : %.2f %%\n", 100 * target_gap)
-        @printf(
-            "Distance cible : %.6f\n",
-            reference * (1 + target_gap)
-        )
-        println("Arrêt dès que la solution a moins de véhicules que la référence,")
-        println("ou autant avec une distance dans le gap cible.")
+        println("Pas de gap cible exploitable : toutes les itérations seront exécutées.")
     end
-
     println("Sortie : ", path)
     println()
 
-    shared = SharedState(
-        ReentrantLock(), Atomic{Bool}(false),
-        nothing, nothing, started
-    )
-
+    shared = SharedState(ReentrantLock(), Atomic{Bool}(false), nothing, nothing, started)
     results = Vector{Tuple{Solution,Int}}(undef, n_chains)
 
-    @sync begin
-        for chain_id in 1:n_chains
-            let cid = chain_id
-                Threads.@spawn begin
-                    results[cid] = run_chain(
-                        inst, shared, reference, target_gap,
-                        path, max_iterations,
-                        cid, seed + 7919cid;
-                        consolidation = consolidation,
-                        t0_factor = t0_factor, t_end = t_end,
-                        migration = migration, q_scale = q_scale,
-                        time_limit = time_limit
-                    )
-                end
-            end
+    # Multi-start parallèle : une chaîne par thread, graines différentes.
+    @sync for chain_id in 1:n_chains
+        let cid = chain_id
+            Threads.@spawn results[cid] = run_chain(
+                inst, shared, reference, target_gap, path, max_iterations,
+                cid, seed + 7919cid;
+                consolidation = consolidation, t0_factor = t0_factor,
+                t_end = t_end, migration = migration, q_scale = q_scale,
+                time_limit = time_limit
+            )
         end
     end
 
     # Si le seuil a été atteint, conserve la solution déjà sauvegardée.
-    # Sinon, retient le meilleur objectif véhicules puis distance.
+    # Sinon, retient le meilleur objectif (véhicules puis distance).
     final = if shared.target_solution !== nothing
-        copy_solution(shared.target_solution)
+        shared.target_solution
     else
-        candidate = copy_solution(results[1][1])
-
-        for (solution, _) in results
-            if better(solution, candidate)
-                candidate = copy_solution(solution)
-            end
-        end
-
-        if shared.best !== nothing && better(shared.best, candidate)
-            candidate = copy_solution(shared.best)
-        end
-
-        candidate
+        pool = [first.(results); shared.best === nothing ? Solution[] : [shared.best]]
+        foldl((a, b) -> better(b, a) ? b : a, pool)
     end
+    final = copy_solution(final)
 
     # La limite de véhicules n'empêche pas d'obtenir un résultat : si le
     # meilleur trouvé la dépasse, on le rend quand même avec un avertissement
-    # (ligne repérée par le pont) pour éviter de relancer le calcul.
-    if vehicles(final) > inst.nb_vehicles
-        println("AVERTISSEMENT limite de véhicules dépassée : ",
-                vehicles(final), " utilisés pour ", inst.nb_vehicles,
-                " autorisés.")
-    end
+    # pour éviter de relancer le calcul.
+    vehicles(final) > inst.nb_vehicles &&
+        println("AVERTISSEMENT limite de véhicules dépassée : ", vehicles(final),
+                " utilisés pour ", inst.nb_vehicles, " autorisés.")
     validate!(final, inst; limit = length(final.routes)) ||
         error("La solution finale est invalide.")
     write_solution(path, final)
@@ -1434,109 +1229,59 @@ function solve_parallel(instance_path::String;
     @printf("Distance totale : %.6f\n", distance(final))
     @printf("Temps total : %.2f secondes\n", elapsed)
 
-    if reference !== nothing
-        @printf(
-            "Gap distance atteint : %.3f %%\n",
-            100 * (distance(final) / reference - 1)
-        )
-    else
-        println("Gap : indisponible, référence absente ou illisible.")
-    end
+    reference === nothing ?
+        println("Gap : indisponible, référence absente ou illisible.") :
+        @printf("Gap distance atteint : %.3f %%\n", 100 * (distance(final) / reference - 1))
 
-    if shared.stop[]
-        println("Motif d'arrêt : gap distance cible atteint.")
-    elseif isfinite(time_limit) && elapsed >= time_limit
-        println("Motif d'arrêt : temps maximal atteint.")
-    else
-        println("Motif d'arrêt : toutes les itérations terminées.")
-    end
+    println(
+        "Motif d'arrêt : ",
+        shared.stop[] ? "gap distance cible atteint." :
+        isfinite(time_limit) && elapsed >= time_limit ? "temps maximal atteint." :
+        "toutes les itérations terminées."
+    )
 
     for cid in 1:n_chains
-        println(
-            "Chaîne ", cid, " : ",
-            results[cid][2], " itérations exécutées."
-        )
+        println("Chaîne ", cid, " : ", results[cid][2], " itérations exécutées.")
     end
-
-    println("Solution enregistrée dans : ", path)
 
     summary_path = splitext(path)[1] * "_resume.txt"
-    open(summary_path, "w") do io
-        println(io, "Instance: ", inst.name)
-        println(io, "Vehicles: ", vehicles(final))
-        @printf(io, "Distance: %.6f\n", distance(final))
-        @printf(io, "Elapsed_seconds: %.3f\n", elapsed)
-        println(io, "Chains: ", n_chains)
-        println(io, "Max_iterations_per_chain: ", max_iterations)
-        println(io, "Target_reached: ", shared.stop[])
-
-        if reference !== nothing
-            println(io, "Reference_distance: ", reference)
-            @printf(
-                io, "Distance_gap_percent: %.6f\n",
-                100 * (distance(final) / reference - 1)
-            )
-        else
-            println(io, "Reference_distance: unavailable")
-        end
-
-        for cid in 1:n_chains
-            println(io, "Chain_", cid, "_iterations: ", results[cid][2])
-        end
-    end
-
+    write_summary(summary_path, inst, final, reference, elapsed, n_chains,
+                  max_iterations, shared, results)
+    println("Solution enregistrée dans : ", path)
     println("Résumé enregistré dans : ", summary_path)
     return final
 end
 
 # ============================================================================
-# Lancement
+# Lancement en ligne de commande
 # ============================================================================
 
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     if length(ARGS) < 2
-        println("Usage :")
-        println(
-            "julia --threads 4 --project=. -O3 CVRPTW_ALNS.jl ",
-            "<instance.txt> <max_iterations> [n_chaines] [gap_cible] [seed] ",
-            "[consolidation] [t0_factor] [t_end] [migration] [q_scale] ",
-            "[temps_max_secondes]"
-        )
-        println()
-        println("Exemple :")
-        println(
-            "julia --threads 4 --project=. -O3 CVRPTW_ALNS.jl ",
-            "RC1_6_2.txt 50000 4 0.06"
-        )
+        println("Usage : julia --threads 4 --project=. -O3 CVRPTW_ALNS.jl ",
+                "<instance.txt> <max_iterations> [n_chaines] [gap_cible] [seed] ",
+                "[consolidation] [t0_factor] [t_end] [migration] [q_scale] ",
+                "[temps_max_secondes]")
+        println("Exemple : julia --threads 4 --project=. -O3 CVRPTW_ALNS.jl ",
+                "RC1_6_2.txt 50000 4 0.06")
         exit(1)
     end
 
-    instance_path = ARGS[1]
     # Un argument "-" laisse la valeur par défaut (permet de n'en fixer qu'un).
     arg(k, T, default) =
         length(ARGS) >= k && ARGS[k] != "-" ? parse(T, ARGS[k]) : default
-    iterations = parse(Int, ARGS[2])
-    chains = arg(3, Int, 4)
-    gap = arg(4, Float64, Inf)
-    seed = arg(5, Int, 42)
-    consolidation = arg(6, Float64, 0.0)
-    t0_factor = arg(7, Float64, 0.003)
-    t_end = arg(8, Float64, 0.02)
-    migration = arg(9, Int, 10000)
-    q_scale = arg(10, Float64, 1.0)
-    time_limit = arg(11, Float64, Inf)
 
     solve_parallel(
-        instance_path;
-        max_iterations = iterations,
-        n_chains = chains,
-        target_gap = gap,
-        seed = seed,
-        consolidation = consolidation,
-        t0_factor = t0_factor,
-        t_end = t_end,
-        migration = migration,
-        q_scale = q_scale,
-        time_limit = time_limit
+        ARGS[1];
+        max_iterations = parse(Int, ARGS[2]),
+        n_chains = arg(3, Int, 4),
+        target_gap = arg(4, Float64, Inf),
+        seed = arg(5, Int, 42),
+        consolidation = arg(6, Float64, 0.0),
+        t0_factor = arg(7, Float64, 0.003),
+        t_end = arg(8, Float64, 0.02),
+        migration = arg(9, Int, 10000),
+        q_scale = arg(10, Float64, 1.0),
+        time_limit = arg(11, Float64, Inf)
     )
 end
