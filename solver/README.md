@@ -14,7 +14,7 @@ Objectif : minimiser (véhicules, distance) le plus vite possible.
     ./run.sh RC2_10_10.txt 100000 4
 
 Arguments du solveur : `<instance.txt> <iterations> [chaines] [gap_cible] [seed] [consolidation] [t0_factor] [t_end] [migration] [q_scale]`
-(défauts : 4 chaînes, pas de gap cible, graine 42, 0.0, 0.003, 0.02, 10000, 1.0). `ALNS_DIAG=1` affiche des statistiques par opérateur.
+(défauts : 4 chaînes, pas de gap cible, graine 42, 0.0, 0.003, 0.02, 10000, 1.0).
 
 Explications détaillées des modifications : voir `COMPARAISON.md`.
 
