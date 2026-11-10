@@ -28,7 +28,7 @@ Deux terminaux :
 cd backend  && .venv/bin/uvicorn api:app --port 8000
 cd frontend && npm install && npm run dev       # http://localhost:5173
 ```
-Le front appelle `/api/instance`, `/api/optimize` et `/api/routes/geometry`. Les tournées sont calculées par le solveur Julia. Le mode `france` lui fournit la matrice routière OSRM (fichier `.matrix`, durées de trajet) ; les autres modes restent à vol d'oiseau. Le tracé des routes sur la carte demande une connexion internet (serveur public OSRM).
+Le front appelle `/api/instance`, `/api/optimize` et `/api/routes/geometry`. Les tournées sont calculées par le solveur Julia. Le mode `france` lui fournit la matrice routière OSRM en deux fichiers : `<instance>.matrix` (durées en minutes, pour les fenêtres horaires) et `<instance>.dist` (distances en km, c'est le coût minimisé) ; les autres modes restent à vol d'oiseau, sans fichier. Les deux fichiers sont optionnels et indépendants : sans `.dist`, le coût est la matrice `.matrix` elle-même. Le tracé des routes sur la carte demande une connexion internet (serveur public OSRM).
 
 ## Comparer deux solveurs (et le CO2)
 ```

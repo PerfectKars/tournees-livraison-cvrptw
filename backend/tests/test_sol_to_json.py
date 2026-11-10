@@ -212,3 +212,20 @@ def test_solve_avec_reference_s_arrete_au_gap_cible():
     assert res["valide"] and res["nb_vehicules_utilises"] <= 10
     assert res["solveur"]["motif_arret"] == "gap"
     assert res["solveur"]["temps_calcul"] < 30
+
+
+def test_front_optimize_france_minimise_les_km_et_respecte_les_fenetres():
+    """france : coût = km OSRM, fenêtres horaires en minutes OSRM, tous les clients servis."""
+    import shutil
+    if not shutil.which("julia"):
+        pytest.skip("Julia absent")
+    from fastapi.testclient import TestClient
+    import api
+    r = TestClient(api.app).post("/api/optimize?mode=france&iterations=20")
+    assert r.status_code == 200
+    res = r.json()["resultats"]
+    assert sorted(c for t in res["routes"] for c in t) == list(range(1, 101))
+    assert res["number_of_routes"] <= 10 and not res["limite_depassee"]
+    assert all(s["within_time_window"] for d in res["route_details"] for s in d["stops"])
+    assert all(d["return_within_depot_window"] for d in res["route_details"])
+    assert 7500 < res["cost"] < 9800  # km ; ~8700 en moyenne, bruit de plusieurs centaines
