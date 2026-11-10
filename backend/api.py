@@ -87,6 +87,19 @@ def parse_resume(path):
     }
 
 
+def motif_arret(log):
+    """'gap', 'temps' ou 'iterations' d'après la ligne « Motif d'arrêt » du solveur."""
+    try:
+        texte = log.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    m = re.search(r"Motif d'arrêt : (.*)", texte)
+    if not m:
+        return None
+    return ("gap" if "gap" in m.group(1) else
+            "temps" if "temps" in m.group(1) else "iterations")
+
+
 def run_job(job_id, req, source):
     job = jobs[job_id]
     with UN_SEUL_CALCUL:  # les autres calculs restent 'en_attente'
@@ -114,6 +127,10 @@ def run_job(job_id, req, source):
             resume = work / f"{source.stem}_alns_resume.txt"
             resultat["solveur"] = parse_resume(resume) if resume.exists() else {}
             resultat["solveur"]["duree_totale"] = round(time.time() - t0, 2)
+            resultat["solveur"]["motif_arret"] = motif_arret(work / "julia.log")
+            resultat["solveur"]["temps_max"] = TEMPS_MAX
+            resultat["solveur"]["gap_cible_pourcent"] = (
+                round(100 * GAP_CIBLE, 2) if avec_ref else None)
             # Gap comparable à la référence : même arrondi des distances qu'elle.
             ref_cout = resultat["solveur"].get("reference")
             if ref_cout:
@@ -130,14 +147,45 @@ def run_job(job_id, req, source):
                              "message": f"{type(e).__name__}: {e}"}
 
 
+def lire_reference(sol):
+    """(coût, nombre de routes) du .sol de référence ; None si absent du fichier."""
+    cout, routes = None, 0
+    for ligne in sol.read_text(encoding="utf-8").splitlines():
+        if re.match(r"\s*Route\s*#", ligne, re.I):
+            routes += 1
+        m = re.match(r"\s*Cost\s*:?\s*([0-9.eE+-]+)", ligne, re.I)
+        if m:
+            cout = float(m.group(1))
+    return cout, (routes or None)
+
+
+_infos_instances = {}  # (chemin, date de modification) -> infos, calculées une fois
+
+
+def infos_instance(p):
+    cle = (str(p), p.stat().st_mtime)
+    if cle not in _infos_instances:
+        sol = p.with_suffix(".sol")
+        cout, routes = lire_reference(sol) if sol.exists() else (None, None)
+        try:
+            clients = len(read_instance(p)["clients"]) - 1
+        except ErreurBackend:
+            clients = None
+        _infos_instances[cle] = {"clients": clients, "reference_cout": cout,
+                                 "reference_vehicules": routes}
+    return _infos_instances[cle]
+
+
 @app.get("/instances")
 def list_instances():
-    """Instances disponibles, rangées par jeu (solomon, homberger, xtw)."""
+    """Instances disponibles, rangées par jeu (solomon, homberger, xtw), avec
+    le nombre de clients et la solution de référence (coût, véhicules)."""
     out = []
     for p in sorted(INSTANCES.glob("*/*")):
         if p.suffix in (".txt", ".vrp"):
             out.append({"nom": f"{p.parent.name}/{p.stem}", "jeu": p.parent.name,
-                        "reference": p.with_suffix(".sol").exists()})
+                        "reference": p.with_suffix(".sol").exists(),
+                        **infos_instance(p)})
     return out
 
 
