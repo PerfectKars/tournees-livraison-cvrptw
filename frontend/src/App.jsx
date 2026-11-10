@@ -41,7 +41,6 @@ const navigation = [
 ];
 
 const instances = [
-  { value: "solomon", label: "Benchmark Solomon" },
   { value: "france", label: "France — GPS + OSRM" },
   { value: "petite", label: "Petite livraison — 20 clients" },
   { value: "demande", label: "Forte demande — 50 clients" },
@@ -52,7 +51,7 @@ const instances = [
 function App() {
   const [activePage, setActivePage] = useState("Dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [mode, setMode] = useState("solomon");
+  const [mode, setMode] = useState("petite");
 
   // Données de l'instance
   const [instance, setInstance] = useState(null);
@@ -305,7 +304,7 @@ function App() {
                 ? " Instance avec fenêtres horaires."
                 : mode === "grande"
                 ? " Grande instance avec capacité élevée."
-                : " Distances euclidiennes du benchmark Solomon."}
+                : " Distances euclidiennes."}
             </p>
           )}
         </div>
