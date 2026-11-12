@@ -1,6 +1,7 @@
 """Lancement du solveur Julia, partagé par l'API des tournées (api.py)
 et par le pont du front-end (delivery/solver_bridge.py)."""
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -49,3 +50,29 @@ def lancer_julia(work, inst_solomon, iterations, chains, seed,
         raise ErreurBackend("solveur", f"Le Julia a échoué (code {proc.returncode}). "
                             f"Fin du journal : {fin}")
     return sol
+
+
+# Ligne écrite par le solveur à chaque amélioration de la meilleure solution :
+# "[12.3 s] chaîne 2, it. 450 | véhicules 11 | distance 1234.56 | gap ..."
+_LIGNE_TRACE = re.compile(
+    r"^\[(\d+(?:\.\d+)?) s\] chaîne \d+, it\. \d+ \| véhicules (\d+) \| "
+    r"distance (\d+(?:\.\d+)?)", re.M)
+
+
+def lire_trace(log, max_points=150):
+    """Courbe de convergence du solveur, lue dans son journal (julia.log) :
+    liste de [secondes, véhicules, distance], réduite à `max_points` points."""
+    try:
+        texte = Path(log).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    points = [[float(t), int(v), float(d)] for t, v, d in _LIGNE_TRACE.findall(texte)]
+    return reduire_trace(points, max_points)
+
+
+def reduire_trace(points, max_points=150):
+    """Garde au plus `max_points` points, en conservant le premier et le dernier."""
+    if len(points) <= max_points:
+        return points
+    pas = (len(points) - 1) / (max_points - 1)
+    return [points[round(i * pas)] for i in range(max_points)]

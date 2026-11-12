@@ -45,7 +45,7 @@ function Barres({ lignes, max, seuil, unite }) {
   );
 }
 
-export function PageBenchmark({ bench }) {
+export function PageBenchmark({ bench, embarque = false }) {
   const {
     instances, erreur, selection, resultats, enCours, courante, ecoule,
     basculer, choisir, lancer, arreter, effacer,
@@ -72,6 +72,7 @@ export function PageBenchmark({ bench }) {
 
   return (
     <>
+      {!embarque && (
       <section className="welcome-section">
         <div>
           <div className="date-label">
@@ -87,6 +88,7 @@ export function PageBenchmark({ bench }) {
           </p>
         </div>
       </section>
+      )}
 
       {erreur && <div className="error-message">Erreur : {erreur}</div>}
 
