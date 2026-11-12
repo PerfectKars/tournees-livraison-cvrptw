@@ -27,64 +27,40 @@ function Legende() {
   );
 }
 
-// Barres groupées : une ligne par élément, une barre par solveur.
-function BarresDouble({ lignes, unite = "", seuil }) {
-  const sommet = Math.max(1e-9, seuil ?? 0, ...lignes.flatMap((l) => [l.alns, l.tabou].map((v) => Math.abs(v ?? 0))));
-  return (
-    <div className="bench-bars">
-      {lignes.map((l) => (
-        <div className="bench-row cmp-row" key={l.cle}>
-          <span className="bench-label" title={l.titre}>{l.etiquette}</span>
-          <div className="bench-track">
-            {["alns", "tabou"].map((s) => (
-              <div
-                key={s}
-                className="bench-fill"
-                style={{
-                  width: `${Math.max(1, (100 * Math.abs(l[s] ?? 0)) / sommet)}%`,
-                  background: COULEUR[s],
-                }}
-                title={`${LIBELLE[s]} : ${fmt(l[s])}${unite}`}
-              />
-            ))}
-            {seuil !== undefined && (
-              <i className="bench-seuil" style={{ left: `${(100 * seuil) / sommet}%` }} />
-            )}
-          </div>
-          <span className="bench-value cmp-valeurs">
-            <b style={{ color: COULEUR.alns }}>{fmt(l.alns)}</b>
-            {" / "}
-            <b style={{ color: COULEUR.tabou }}>{fmt(l.tabou)}</b>
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
+// Meilleure distance connue à l'instant t (la trace ne change qu'aux améliorations).
+const valeurA = (trace, t) => {
+  let v = null;
+  for (const p of trace) { if (p[0] <= t) v = p[2]; else break; }
+  return v;
+};
 
 // Courbe de convergence : meilleure distance trouvée en fonction du temps.
+// Les points de la trace sont reliés par des segments (courbe continue) ; la
+// meilleure solution reste valable jusqu'à la fin du budget de temps.
 export function Courbes({ ligne }) {
   const L = 680, H = 300, g = { h: 16, b: 38, l: 58, d: 14 };
   const w = L - g.l - g.d, h = H - g.h - g.b;
 
   const series = ["alns", "tabou"].map((s) => ({ s, trace: ligne[s].trace }));
   const tMax = Math.max(ligne.temps_budget, ...series.map((x) => x.trace.at(-1)[0]));
+  // L'ALNS n'apparaît qu'après la compilation de Julia (quelques secondes). Le
+  // haut du graphe est réglé sur les valeurs à partir de cet instant : les deux
+  // solveurs restent visibles, même sur les grandes instances où le tabou est
+  // très loin de la référence. Avant, seul le début du tabou est coupé en haut.
+  const tDebut = Math.max(...series.map((x) => x.trace[0][0]));
+  const apres = series.flatMap((x) => x.trace.filter((p) => p[0] >= tDebut).map((p) => p[2]));
+  const departs = series.map((x) => valeurA(x.trace, tDebut)).filter((v) => v !== null);
   const toutes = series.flatMap((x) => x.trace.map((p) => p[2]));
   const mini = Math.min(...toutes, ligne.reference ?? Infinity);
-  // Le départ du tabou est très loin de l'optimum : on coupe en haut pour que la
-  // partie utile (la fin de la descente) reste lisible.
-  const maxi = Math.min(Math.max(...toutes), mini * 1.25);
-  const bas = mini * 0.97, haut = maxi * 1.02;
+  const maxi = Math.max(...apres, ...departs);
+  const bas = mini - (maxi - mini) * 0.04, haut = maxi + (maxi - mini) * 0.04;
 
   const x = (t) => g.l + (t / tMax) * w;
   const y = (d) => g.h + (1 - (d - bas) / (haut - bas)) * h;
 
   const chemin = (trace) => {
-    const pts = [...trace];
-    pts.push([tMax, 0, trace.at(-1)[2]]); // la meilleure solution reste valable jusqu'au bout
-    let c = `M ${x(pts[0][0])} ${y(pts[0][2])}`;
-    for (const p of pts.slice(1)) c += ` H ${x(p[0])} V ${y(p[2])}`;
-    return c;
+    const pts = [...trace, [tMax, 0, trace.at(-1)[2]]];
+    return pts.map((p, k) => `${k ? "L" : "M"} ${x(p[0]).toFixed(1)} ${y(p[2]).toFixed(1)}`).join(" ");
   };
 
   const ticksX = Array.from({ length: 6 }, (_, i) => (tMax * i) / 5);
@@ -122,13 +98,104 @@ export function Courbes({ ligne }) {
         </g>
       )}
       <g clipPath="url(#cmp-clip)">
-        {/* ALNS plus épais, tabou fin par-dessus : si les deux courbes se
-            confondent (instance facile), les deux restent visibles. */}
         {series.map(({ s, trace }) => (
-          <path key={s} d={chemin(trace)} fill="none" stroke={COULEUR[s]}
-                strokeWidth={s === "alns" ? 4.5 : 1.8} strokeLinejoin="round" />
+          <path key={s} d={chemin(trace)} fill="none" stroke={COULEUR[s]} strokeWidth="2.5"
+                strokeLinejoin="round" strokeLinecap="round" />
         ))}
       </g>
+    </svg>
+  );
+}
+
+// Histogramme vertical groupé : une paire de barres (ALNS, tabou) par famille.
+function BarresFamilles({ familles, seuil }) {
+  const L = 1000, H = 340, g = { h: 24, b: 44, l: 56, d: 16 };
+  const w = L - g.l - g.d, h = H - g.h - g.b;
+  const max = Math.max(seuil, ...familles.flatMap((f) => [f.alns ?? 0, f.tabou ?? 0]));
+  const haut = Math.ceil((max * 1.12) / 10) * 10;
+  const y = (v) => g.h + (1 - v / haut) * h;
+  const pas = w / familles.length;
+  const lb = Math.min(60, pas * 0.32);
+  const ticks = Array.from({ length: 5 }, (_, i) => (haut * i) / 4);
+  return (
+    <svg viewBox={`0 0 ${L} ${H}`} className="cmp-svg" role="img" aria-label="Écart moyen par famille d'instances">
+      {ticks.map((t) => (
+        <g key={t}>
+          <line x1={g.l} x2={g.l + w} y1={y(t)} y2={y(t)} stroke="var(--line)" />
+          <text x={g.l - 8} y={y(t) + 4} textAnchor="end" className="cmp-tick-grand">{Math.round(t)} %</text>
+        </g>
+      ))}
+      {familles.map((f, i) => {
+        const cx = g.l + pas * (i + 0.5);
+        return (
+          <g key={f.famille}>
+            {[["alns", -lb - 2], ["tabou", 2]].map(([s, dx]) => {
+              const v = Math.max(0, f[s] ?? 0);
+              return (
+                <g key={s}>
+                  <rect x={cx + dx} y={y(v)} width={lb} height={Math.max(1, h + g.h - y(v))} rx="4" fill={COULEUR[s]}>
+                    <title>{`${LIBELLE[s]} : ${fmt(f[s])} % (${f.instances} instance(s))`}</title>
+                  </rect>
+                  <text x={cx + dx + lb / 2} y={y(v) - 6} textAnchor="middle" className="cmp-valeur">{fmt(f[s], 1)}</text>
+                </g>
+              );
+            })}
+            <text x={cx} y={H - 16} textAnchor="middle" className="cmp-tick-grand">{f.famille}</text>
+          </g>
+        );
+      })}
+      <line x1={g.l} x2={g.l + w} y1={y(seuil)} y2={y(seuil)} stroke="var(--ink)" strokeDasharray="5 4" opacity=".6" />
+      <text x={g.l + w} y={y(seuil) - 6} textAnchor="end" className="cmp-tick">objectif : {seuil} %</text>
+    </svg>
+  );
+}
+
+// Courbe du CO2 par instance (instances rangées par taille). Le nom de
+// l'instance et les valeurs apparaissent au survol des points.
+function CourbesCO2({ agreges }) {
+  const L = 1000, H = 320, g = { h: 16, b: 50, l: 70, d: 16 };
+  const w = L - g.l - g.d, h = H - g.h - g.b;
+  const n = agreges.length;
+  const max = Math.max(...agreges.flatMap((a) => [a.alns.co2_kg, a.tabou.co2_kg]));
+  const pasY = 10 ** Math.floor(Math.log10(max / 3));
+  const haut = Math.ceil(max / pasY / 1) * pasY;
+  const x = (i) => g.l + (n > 1 ? (i / (n - 1)) * w : w / 2);
+  const y = (v) => g.h + (1 - v / haut) * h;
+  const ticks = Array.from({ length: 5 }, (_, i) => (haut * i) / 4);
+  // une étiquette à chaque changement de taille d'instance
+  const groupes = [];
+  agreges.forEach((a, i) => {
+    if (i === 0 || a.clients !== agreges[i - 1].clients) {
+      // pas d'étiquette si elle toucherait la précédente
+      if (!groupes.length || x(i) - x(groupes.at(-1)[1]) > 95) groupes.push([a.clients, i]);
+    }
+  });
+  const chemin = (s) => agreges.map((a, i) => `${i ? "L" : "M"} ${x(i).toFixed(1)} ${y(a[s].co2_kg).toFixed(1)}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${L} ${H}`} className="cmp-svg" role="img" aria-label="CO2 des tournées par instance">
+      {ticks.map((t) => (
+        <g key={t}>
+          <line x1={g.l} x2={g.l + w} y1={y(t)} y2={y(t)} stroke="var(--line)" />
+          <text x={g.l - 8} y={y(t) + 4} textAnchor="end" className="cmp-tick-grand">{Math.round(t).toLocaleString("fr-FR")}</text>
+        </g>
+      ))}
+      <text transform={`translate(14 ${g.h + h / 2}) rotate(-90)`} textAnchor="middle" className="cmp-tick">CO₂ (kg)</text>
+      {groupes.map(([c, i]) => (
+        <g key={`${c}-${i}`}>
+          <line x1={x(i)} x2={x(i)} y1={g.h} y2={g.h + h} stroke="var(--line)" strokeDasharray="2 4" />
+          <text x={x(i)} y={H - 22} textAnchor="start" className="cmp-tick-grand">{c} clients</text>
+        </g>
+      ))}
+      {["alns", "tabou"].map((s) => (
+        <g key={s}>
+          <path d={chemin(s)} fill="none" stroke={COULEUR[s]} strokeWidth="2.5" strokeLinejoin="round" />
+          {agreges.map((a, i) => (
+            <circle key={a.nom} cx={x(i)} cy={y(a[s].co2_kg)} r="4" fill={COULEUR[s]}>
+              <title>{`${a.court} (${a.clients} clients) — ${LIBELLE[s]} : ${fmt(a[s].co2_kg, 0)} kg`}</title>
+            </circle>
+          ))}
+        </g>
+      ))}
     </svg>
   );
 }
@@ -356,7 +423,7 @@ export default function Comparaison({ apiUrl }) {
                 <h3>Courbes de convergence</h3>
                 <p>
                   Meilleure distance trouvée au fil du temps. Pointillés : meilleure solution
-                  connue. La courbe est coupée en haut : le tabou démarre très loin de l'optimum.
+                  connue. Les courbes démarrent quand le solveur a trouvé sa première solution (l'ALNS après la compilation de Julia).
                 </p>
               </div>
               <div className="bench-presets">
@@ -378,56 +445,32 @@ export default function Comparaison({ apiUrl }) {
             <Courbes ligne={ligneCourbe} />
           </section>
 
-          <section className="bench-grid cmp-grid">
-            <article className="panel">
-              <div className="panel-heading">
-                <div>
-                  <h3>Gap par instance (%)</h3>
-                  <p>Trait : objectif de 7 %. Plus court = meilleur.</p>
-                </div>
+          <section className="panel bench-panel">
+            <div className="panel-heading">
+              <div>
+                <h3>Écart moyen à la meilleure solution connue, par famille</h3>
+                <p>
+                  C = clients groupés, R = répartis au hasard, RC = mélange ; 1 = horizon court,
+                  2 = horizon long. Plus la barre est courte, mieux c'est. Trait : objectif de 7 %.
+                </p>
               </div>
-              <Legende />
-              <BarresDouble
-                seuil={7}
-                unite=" %"
-                lignes={agreges.map((a) => ({
-                  cle: a.nom, etiquette: a.court, titre: `${a.nom} (${a.clients} clients)`,
-                  alns: Math.max(0, a.alns.gap ?? 0), tabou: Math.max(0, a.tabou.gap ?? 0),
-                }))}
-              />
-            </article>
+            </div>
+            <Legende />
+            <BarresFamilles familles={familles} seuil={7} />
+          </section>
 
-            <article className="panel">
-              <div className="panel-heading">
-                <div>
-                  <h3>Gap moyen par famille (%)</h3>
-                  <p>C = clients groupés, R = aléatoires, RC = mixte ; 1 = horizon court, 2 = long.</p>
-                </div>
+          <section className="panel bench-panel">
+            <div className="panel-heading">
+              <div>
+                <h3>CO₂ des tournées (kg)</h3>
+                <p>
+                  Émissions estimées de la solution de chaque solveur, une valeur par instance
+                  (rangées par taille ; survolez un point pour voir l'instance). Hypothèse : 0,2 kg/km.
+                </p>
               </div>
-              <Legende />
-              <BarresDouble
-                seuil={7}
-                unite=" %"
-                lignes={familles.map((f) => ({
-                  cle: f.famille, etiquette: f.famille,
-                  titre: `${f.instances} instance(s)`,
-                  alns: Math.max(0, f.alns ?? 0), tabou: Math.max(0, f.tabou ?? 0),
-                }))}
-              />
-              <div className="panel-heading" style={{ marginTop: 22 }}>
-                <div>
-                  <h3>CO₂ des tournées (kg)</h3>
-                  <p>Émissions estimées de la solution de chaque solveur (hypothèse 0,2 kg/km).</p>
-                </div>
-              </div>
-              <BarresDouble
-                unite=" kg"
-                lignes={agreges.map((a) => ({
-                  cle: a.nom, etiquette: a.court, titre: `${a.nom}`,
-                  alns: a.alns.co2_kg, tabou: a.tabou.co2_kg,
-                }))}
-              />
-            </article>
+            </div>
+            <Legende />
+            <CourbesCO2 agreges={agreges} />
           </section>
 
           <section className="panel">

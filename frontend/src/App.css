@@ -269,3 +269,5 @@ td { padding: 13px 8px; border-bottom: 1px solid #F0EBE1; }
 .cmp-valeurs { white-space: nowrap; }
 .cmp-select { padding: 9px 13px; border-radius: 999px; border: 1px solid var(--line); background: var(--white); color: var(--ink); font-size: 12px; font-weight: 600; }
 @media (max-width: 900px) { .cmp-grid { grid-template-columns: 1fr; } }
+.cmp-tick-grand { font-size: 12px; fill: var(--ink); }
+.cmp-valeur { font-size: 12px; font-weight: 700; fill: var(--ink); }
