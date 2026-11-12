@@ -1,25 +1,20 @@
-
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import { setWorkerUrl } from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./RouteMap3D.css";
+import {
+  couleurCamion,
+  estEnRetard,
+  getRouteDuration,
+  getSimulationInfo,
+  minutes
+} from "./tournees";
 
 setWorkerUrl(workerUrl);
 
-const COLORS = [
-  "#C47759", "#648C78", "#7C78A8", "#D6A85F", "#578CA3",
-  "#B16C85", "#8A9560", "#A17B56", "#6877A8", "#A56F48"
-];
-
 const API = "http://127.0.0.1:8000";
-
-const minutes = (value) => {
-  if (value == null || !Number.isFinite(Number(value))) return "—";
-  const n = Math.max(0, Math.round(Number(value)));
-  return `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
-};
 
 const safe = (v) =>
   String(v ?? "—").replace(/[&<>"']/g, (c) => ({
@@ -30,150 +25,82 @@ const safe = (v) =>
     "'": "&#39;"
   }[c]));
 
-function getPositionOnRoute(coords, progress) {
-  if (!coords?.length) return null;
-  if (coords.length === 1) return coords[0];
+// =========================================================
+// GÉOMÉTRIE DES TRAJETS
+// Le trajet est préparé une fois (longueurs cumulées) pour que la position
+// du camion se calcule en O(log n) à chaque image de l'animation.
+// =========================================================
 
-  const lengths = [];
-  let total = 0;
+function buildTrack(coords) {
+  const cum = [0];
 
   for (let i = 1; i < coords.length; i++) {
     const dx = coords[i][0] - coords[i - 1][0];
     const dy = coords[i][1] - coords[i - 1][1];
-    const length = Math.sqrt(dx * dx + dy * dy);
-    lengths.push(length);
-    total += length;
+    cum.push(cum[i - 1] + Math.sqrt(dx * dx + dy * dy));
   }
 
-  if (!total) return coords[0];
-
-  let remaining = total * Math.max(0, Math.min(1, progress));
-
-  for (let i = 0; i < lengths.length; i++) {
-    if (remaining <= lengths[i]) {
-      const ratio = lengths[i] ? remaining / lengths[i] : 0;
-
-      return [
-        coords[i][0] + (coords[i + 1][0] - coords[i][0]) * ratio,
-        coords[i][1] + (coords[i + 1][1] - coords[i][1]) * ratio
-      ];
-    }
-
-    remaining -= lengths[i];
-  }
-
-  return coords[coords.length - 1];
+  return { coords, cum, total: cum[cum.length - 1] || 0 };
 }
 
-// Calcule la direction réelle du camion sur le segment correspondant
-// à sa position actuelle.
-function getRouteBearing(coords, progress) {
-  if (!coords || coords.length < 2) return 0;
-
-  const lengths = [];
-  let total = 0;
-
-  for (let i = 1; i < coords.length; i++) {
-    const dx = coords[i][0] - coords[i - 1][0];
-    const dy = coords[i][1] - coords[i - 1][1];
-    const length = Math.sqrt(dx * dx + dy * dy);
-    lengths.push(length);
-    total += length;
-  }
-
-  if (!total) return 0;
-
-  let remaining = total * Math.max(0, Math.min(0.999999, progress));
-
-  let segment = 0;
-
-  for (let i = 0; i < lengths.length; i++) {
-    if (remaining <= lengths[i]) {
-      segment = i;
-      break;
-    }
-
-    remaining -= lengths[i];
-    segment = i;
-  }
-
-  const [lon1, lat1] = coords[segment];
-  const [lon2, lat2] = coords[segment + 1];
-
-  const toRad = (value) => value * Math.PI / 180;
-  const toDeg = (value) => value * 180 / Math.PI;
-
-  const latitude1 = toRad(lat1);
-  const latitude2 = toRad(lat2);
-  const deltaLongitude = toRad(lon2 - lon1);
-
-  const y = Math.sin(deltaLongitude) * Math.cos(latitude2);
-
+// Cap (degrés depuis le nord) du point a vers le point b.
+function bearingBetween([lon1, lat1], [lon2, lat2]) {
+  const toRad = (v) => v * Math.PI / 180;
+  const dLon = toRad(lon2 - lon1);
+  const y = Math.sin(dLon) * Math.cos(toRad(lat2));
   const x =
-    Math.cos(latitude1) * Math.sin(latitude2) -
-    Math.sin(latitude1) * Math.cos(latitude2) *
-    Math.cos(deltaLongitude);
+    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
 
-  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 
-function getRouteDuration(detail) {
-  return Math.max(
-    1,
-    Number(detail?.return_time_min) || 0,
-    ...(detail?.stops || []).map(
-      (stop) => Number(stop.service_end_min) || 0
-    )
-  );
-}
+// Position, cap et segment courant à une fraction (0..1) du trajet.
+function locate(track, progress) {
+  const { coords, cum, total } = track;
 
-function getSimulationInfo(routeDetail, simulationMinute) {
-  const stops = routeDetail?.stops || [];
-
-  const completed = stops.filter(
-    (stop) => Number(stop.service_end_min) <= simulationMinute
-  );
-
-  const currentStop = stops.find(
-    (stop) =>
-      Number(stop.service_start_min) <= simulationMinute &&
-      Number(stop.service_end_min) > simulationMinute
-  );
-
-  const nextStop = stops.find(
-    (stop) => Number(stop.arrival_min) > simulationMinute
-  );
-
-  let status = "En route";
-  let statusType = "neutral";
-
-  if (currentStop) {
-    status = "En livraison";
-    statusType = "info";
-  } else if (nextStop) {
-    const due = Number(nextStop.due_min);
-    const arrival = Number(nextStop.arrival_min);
-
-    if (Number.isFinite(due) && Number.isFinite(arrival) && arrival > due) {
-      status = "Risque de retard";
-      statusType = "warning";
-    } else {
-      status = "À l'heure";
-      statusType = "success";
-    }
-  } else if (stops.length && completed.length === stops.length) {
-    status = "Livraisons terminées";
-    statusType = "success";
+  if (!coords.length) return null;
+  if (coords.length === 1 || !total) {
+    return { pos: coords[0], bearing: 0, index: 0 };
   }
 
-  return {
-    completed: completed.length,
-    currentStop,
-    nextStop,
-    status,
-    statusType
-  };
+  const d = total * Math.max(0, Math.min(1, progress));
+
+  let lo = 0;
+  let hi = coords.length - 2;
+
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (cum[mid] <= d) lo = mid;
+    else hi = mid - 1;
+  }
+
+  const length = cum[lo + 1] - cum[lo];
+  const ratio = length ? (d - cum[lo]) / length : 0;
+  const a = coords[lo];
+  const b = coords[lo + 1];
+  const pos = [a[0] + (b[0] - a[0]) * ratio, a[1] + (b[1] - a[1]) * ratio];
+
+  // Le cap regarde quelques points devant pour éviter les à-coups.
+  const ahead = coords[Math.min(coords.length - 1, lo + 3)];
+
+  return { pos, bearing: bearingBetween(a, ahead), index: lo };
 }
+
+// Écart d'angle le plus court (pour lisser la rotation de la caméra).
+const lerpAngle = (from, to, t) => {
+  const delta = ((to - from + 540) % 360) - 180;
+  return (from + delta * t + 360) % 360;
+};
+
+// État d'un client à une minute donnée : pending, current ou done.
+function etatClient(stop, minute) {
+  if (Number(stop?.service_end_min) <= minute) return "done";
+  if (Number(stop?.service_start_min) <= minute) return "current";
+  return "pending";
+}
+
+const traceVide = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [] } };
 
 export default function RouteMap3D({ instance, optimization }) {
   const mapContainer = useRef(null);
@@ -181,10 +108,18 @@ export default function RouteMap3D({ instance, optimization }) {
 
   const markersRef = useRef([]);
   const truckMarkerRefs = useRef([]);
-  const routeCoordsRef = useRef([]);
+  const tracksRef = useRef([]);
+  const clientMarkersRef = useRef([]);
+  const locsRef = useRef([]);
+  const boundsRef = useRef(null);
 
-  // Le suivi reste actif jusqu'à ce qu'un autre camion soit sélectionné.
+  // Valeurs lues à chaque image de l'animation (sans re-rendre React).
+  const clockRef = useRef(0);
+  const detailsRef = useRef([]);
+  const selectedRef = useRef(0);
   const followTruckRef = useRef(false);
+  const followSinceRef = useRef(0);
+  const camBearingRef = useRef(0);
 
   const [ready, setReady] = useState(false);
   const [selected, setSelected] = useState(0);
@@ -196,6 +131,8 @@ export default function RouteMap3D({ instance, optimization }) {
 
   const [roadFeatures, setRoadFeatures] = useState([]);
 
+  // Minute de simulation affichée dans le panneau (entier) ; l'horloge
+  // précise, fractionnaire, est dans clockRef.
   const [simulationMinute, setSimulationMinute] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
@@ -210,18 +147,11 @@ export default function RouteMap3D({ instance, optimization }) {
     (instance?.clients || []).map((c) => [Number(c.id), c])
   );
 
-  const globalDuration = Math.max(
-    1,
-    ...details.map(getRouteDuration)
-  );
+  const globalDuration = Math.max(1, ...details.map(getRouteDuration));
 
   const simulation = getSimulationInfo(detail, simulationMinute);
   const duration = getRouteDuration(detail);
-
-  const progress = Math.min(
-    100,
-    (simulationMinute / duration) * 100
-  );
+  const progress = Math.min(100, (simulationMinute / duration) * 100);
 
   const nextClient = simulation.nextStop
     ? clientById.get(Number(simulation.nextStop.client_id))
@@ -232,51 +162,143 @@ export default function RouteMap3D({ instance, optimization }) {
     : null;
 
   // =========================================================
-  // CAMÉRA EMBARQUÉE : SÉLECTION D'UN CAMION
+  // RENDU D'UNE IMAGE : camions, traces, clients, caméra
   // =========================================================
 
-  function focusTruck(idx) {
+  const updateArrows = useCallback(() => {
     const map = mapRef.current;
-    const coords = routeCoordsRef.current[idx];
-    const marker = truckMarkerRefs.current[idx];
+    if (!map) return;
 
-    if (!map || !coords?.length || !marker) {
-      console.warn("Impossible de trouver le camion ou son itinéraire :", idx);
-      return;
+    truckMarkerRefs.current.forEach((marker, idx) => {
+      const arrow = marker?.getElement().querySelector(".do-truck-arrow");
+      const loc = locsRef.current[idx];
+      if (arrow && loc) {
+        arrow.style.transform = `rotate(${loc.bearing - map.getBearing()}deg)`;
+      }
+    });
+  }, []);
+
+  const renderFrame = useCallback((minute, { trails = true, follow = true } = {}) => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    tracksRef.current.forEach((track, idx) => {
+      const marker = truckMarkerRefs.current[idx];
+      if (!track || !marker) return;
+
+      const fraction = Math.min(1, minute / getRouteDuration(detailsRef.current[idx]));
+      const loc = locate(track, fraction);
+      if (!loc) return;
+
+      locsRef.current[idx] = loc;
+      marker.setLngLat(loc.pos);
+
+      // Trace déjà parcourue : du départ jusqu'à la position du camion.
+      if (trails) {
+        map.getSource(`truck-done-${idx}`)?.setData({
+          ...traceVide,
+          geometry: {
+            type: "LineString",
+            coordinates: [...track.coords.slice(0, loc.index + 1), loc.pos]
+          }
+        });
+      }
+    });
+
+    updateArrows();
+
+    // Clients : en attente, en cours de livraison, livrés.
+    clientMarkersRef.current.forEach((m) => {
+      const etat = etatClient(m.stop, minute);
+      if (etat !== m.etat) {
+        m.etat = etat;
+        m.el.dataset.etat = etat;
+        m.el.textContent = etat === "done" ? "✓" : String(m.id);
+      }
+    });
+
+    // Caméra embarquée : suit le camion choisi, en lissant le cap.
+    if (follow && followTruckRef.current && performance.now() >= followSinceRef.current) {
+      const idx = selectedRef.current;
+      const track = tracksRef.current[idx];
+      const loc = locsRef.current[idx];
+
+      if (track && loc) {
+        const fraction = Math.min(1, minute / getRouteDuration(detailsRef.current[idx]));
+        const target = locate(track, Math.min(1, fraction + 0.012));
+
+        camBearingRef.current = lerpAngle(camBearingRef.current, loc.bearing, 0.08);
+
+        map.jumpTo({
+          center: target?.pos || loc.pos,
+          zoom: 18,
+          pitch: 78,
+          bearing: camBearingRef.current
+        });
+      }
     }
+  }, [updateArrows]);
+
+  const setClock = useCallback((minute) => {
+    clockRef.current = minute;
+    setSimulationMinute(Math.floor(minute));
+    renderFrame(minute);
+  }, [renderFrame]);
+
+  // =========================================================
+  // CAMÉRA : SÉLECTION D'UN CAMION ET VUE D'ENSEMBLE
+  // =========================================================
+
+  const focusTruck = useCallback((idx) => {
+    const map = mapRef.current;
+    const track = tracksRef.current[idx];
+
+    if (!map || !track?.coords.length) return;
 
     setSelected(idx);
+    selectedRef.current = idx;
     setFollowTruck(true);
     followTruckRef.current = true;
 
-    const truckDuration = getRouteDuration(details[idx]);
-
-    const truckProgress = Math.min(
+    const fraction = Math.min(
       1,
-      simulationMinute / truckDuration
+      clockRef.current / getRouteDuration(detailsRef.current[idx])
     );
+    const loc = locate(track, fraction);
+    const target = locate(track, Math.min(1, fraction + 0.012));
 
-    const position = marker.getLngLat();
-    const bearing = getRouteBearing(coords, truckProgress);
-
-    // Le point visé est légèrement devant le camion.
-    // Le camion reste ainsi visible vers le bas de l'écran.
-    const lookAhead = Math.min(1, truckProgress + 0.012);
-
-    const target = getPositionOnRoute(coords, lookAhead);
+    camBearingRef.current = loc.bearing;
+    // L'animation de caméra prend 1,4 s : le suivi image par image attend.
+    followSinceRef.current = performance.now() + 1400;
 
     map.stop();
     map.resize();
-
     map.easeTo({
-      center: target || [position.lng, position.lat],
+      center: target?.pos || loc.pos,
       zoom: 18,
       pitch: 78,
-      bearing,
+      bearing: loc.bearing,
       duration: 1400,
       essential: true
     });
-  }
+  }, []);
+
+  const vueEnsemble = useCallback(() => {
+    const map = mapRef.current;
+    followTruckRef.current = false;
+    setFollowTruck(false);
+
+    if (map && boundsRef.current) {
+      map.stop();
+      map.fitBounds(boundsRef.current, {
+        padding: { top: 65, bottom: 65, left: 65, right: 390 },
+        maxZoom: 14,
+        pitch: 35,
+        bearing: -8,
+        duration: 800
+      });
+    }
+  }, []);
 
   // =========================================================
   // INITIALISATION DE LA CARTE
@@ -298,27 +320,26 @@ export default function RouteMap3D({ instance, optimization }) {
     mapRef.current = map;
 
     map.addControl(
-      new maplibregl.NavigationControl({
-        visualizePitch: true
-      }),
+      new maplibregl.NavigationControl({ visualizePitch: true }),
       "top-right"
     );
 
-    map.on("load", () => {
-      setReady(true);
-    });
+    map.on("load", () => setReady(true));
+    // Les flèches de cap restent justes quand l'utilisateur tourne la carte.
+    map.on("rotate", updateArrows);
 
     return () => {
       markersRef.current.forEach((marker) => marker.remove());
 
       markersRef.current = [];
       truckMarkerRefs.current = [];
-      routeCoordsRef.current = [];
+      clientMarkersRef.current = [];
+      tracksRef.current = [];
 
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [updateArrows]);
 
   // =========================================================
   // CHARGEMENT DES ITINÉRAIRES OSRM
@@ -338,21 +359,14 @@ export default function RouteMap3D({ instance, optimization }) {
       try {
         const response = await fetch(`${API}/api/routes/geometry`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-  mode: instance?.mode || "france",
-  routes
-})
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: instance?.mode || "france", routes })
         });
 
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(
-            data.detail || `Erreur HTTP ${response.status}`
-          );
+          throw new Error(data.detail || `Erreur HTTP ${response.status}`);
         }
 
         if (!cancelled) {
@@ -362,7 +376,6 @@ export default function RouteMap3D({ instance, optimization }) {
       } catch (error) {
         if (!cancelled) {
           setRoadFeatures([]);
-
           setRoadStatus(
             `Tracés routiers indisponibles : ${error.message}. Liaisons GPS simplifiées.`
           );
@@ -382,12 +395,16 @@ export default function RouteMap3D({ instance, optimization }) {
   // =========================================================
 
   useEffect(() => {
+    detailsRef.current = details;
+    selectedRef.current = 0;
+    followTruckRef.current = false;
+    clockRef.current = 0;
+
     setSelected(0);
     setSimulationMinute(0);
     setIsPlaying(false);
     setFollowTruck(false);
-    followTruckRef.current = false;
-  }, [instance, optimization]);
+  }, [instance, optimization, details]);
 
   // =========================================================
   // CRÉATION DES ROUTES, CLIENTS ET CAMIONS
@@ -404,28 +421,26 @@ export default function RouteMap3D({ instance, optimization }) {
 
     markersRef.current = [];
     truckMarkerRefs.current = [];
-    routeCoordsRef.current = [];
+    clientMarkersRef.current = [];
+    tracksRef.current = [];
+    locsRef.current = [];
 
-    for (const layer of [...map.getStyle().layers.map((l) => l.id)]) {
-      if (layer.startsWith("truck-route-")) {
+    // Supprime les couches et sources d'un calcul précédent.
+    const style = map.getStyle();
+    for (const layer of style.layers.map((l) => l.id)) {
+      if (layer.startsWith("truck-route-") || layer.startsWith("truck-done-")) {
         map.removeLayer(layer);
       }
     }
-
-    for (let i = 0; i < 30; i++) {
-      const sourceId = `truck-source-${i}`;
-
-      if (map.getSource(sourceId)) {
-        map.removeSource(sourceId);
+    for (const source of Object.keys(style.sources)) {
+      if (source.startsWith("truck-source-") || source.startsWith("truck-done-")) {
+        map.removeSource(source);
       }
     }
 
     const depot = instance.depot;
     const clients = instance.clients || [];
-
-    const byId = new Map(
-      clients.map((c) => [Number(c.id), c])
-    );
+    const byId = new Map(clients.map((c) => [Number(c.id), c]));
 
     const toLngLat = (p) =>
       instance.mode === "france"
@@ -435,10 +450,8 @@ export default function RouteMap3D({ instance, optimization }) {
             48.6921 + (p.y - depot.y) * 0.00025
           ];
 
-    const firstWaypoints =
-  roadFeatures[0]?.properties?.waypoints || [];
-
-const depotPos = firstWaypoints[0] || toLngLat(depot);
+    const firstWaypoints = roadFeatures[0]?.properties?.waypoints || [];
+    const depotPos = firstWaypoints[0] || toLngLat(depot);
     const bounds = new maplibregl.LngLatBounds();
 
     bounds.extend(depotPos);
@@ -447,29 +460,25 @@ const depotPos = firstWaypoints[0] || toLngLat(depot);
     depotEl.className = "do-depot-marker";
     depotEl.textContent = "D";
 
-    const depotMarker = new maplibregl.Marker({
-      element: depotEl
-    })
-      .setLngLat(depotPos)
-      .setPopup(
-        new maplibregl.Popup({ offset: 18 }).setText(
-          instance.mode === "france"
-            ? "Dépôt central — Nancy"
-            : `Dépôt central — ${instance.nom_instance || instance.mode}`
+    markersRef.current.push(
+      new maplibregl.Marker({ element: depotEl })
+        .setLngLat(depotPos)
+        .setPopup(
+          new maplibregl.Popup({ offset: 18 }).setText(
+            instance.mode === "france"
+              ? "Dépôt central — Nancy"
+              : `Dépôt central — ${instance.nom_instance || instance.mode}`
+          )
         )
-      )
-      .addTo(map);
-
-    markersRef.current.push(depotMarker);
+        .addTo(map)
+    );
 
     const routeDetails = optimization.route_details || [];
 
     optimization.routes.forEach((truckRoute, idx) => {
-      const color = COLORS[idx % COLORS.length];
-const feature = roadFeatures[idx];
-
-const waypoints =
-  feature?.properties?.waypoints || [];
+      const color = couleurCamion(idx);
+      const feature = roadFeatures[idx];
+      const waypoints = feature?.properties?.waypoints || [];
 
       const fallbackCoords = [
         depotPos,
@@ -480,54 +489,44 @@ const waypoints =
         depotPos
       ];
 
-      const coords =
-        feature?.geometry?.coordinates || fallbackCoords;
+      const coords = feature?.geometry?.coordinates || fallbackCoords;
 
       coords.forEach((point) => bounds.extend(point));
 
-      const sourceId = `truck-source-${idx}`;
-      const layerId = `truck-route-${idx}`;
-
-      map.addSource(sourceId, {
+      // Tracé complet (partie restante, atténuée) puis trace déjà parcourue.
+      map.addSource(`truck-source-${idx}`, {
         type: "geojson",
-        data: {
-          type: "Feature",
-          properties: {},
-          geometry: {
-            type: "LineString",
-            coordinates: coords
-          }
-        }
+        data: { ...traceVide, geometry: { type: "LineString", coordinates: coords } }
       });
 
       map.addLayer({
-        id: layerId,
+        id: `truck-route-${idx}`,
         type: "line",
-        source: sourceId,
-        paint: {
-          "line-color": color,
-          "line-width": 3.5,
-          "line-opacity": 0.75
-        },
-        layout: {
-          "line-cap": "round",
-          "line-join": "round"
-        }
+        source: `truck-source-${idx}`,
+        paint: { "line-color": color, "line-width": 3.5, "line-opacity": 0.4 },
+        layout: { "line-cap": "round", "line-join": "round" }
       });
 
-      const routeDetail = routeDetails[idx] || {};
-      const stops = routeDetail.stops || [];
+      map.addSource(`truck-done-${idx}`, { type: "geojson", data: traceVide });
 
-      // Marqueurs des clients
+      map.addLayer({
+        id: `truck-done-${idx}`,
+        type: "line",
+        source: `truck-done-${idx}`,
+        paint: { "line-color": color, "line-width": 5, "line-opacity": 1 },
+        layout: { "line-cap": "round", "line-join": "round" }
+      });
+
+      const stops = (routeDetails[idx] || {}).stops || [];
+
+      // Marqueurs des clients : leur état change pendant la simulation.
       truckRoute.forEach((id, stopIndex) => {
         const client = byId.get(Number(id));
 
         if (!client) return;
 
         const stop =
-          stops.find(
-            (s) => Number(s.client_id) === Number(id)
-          ) ||
+          stops.find((s) => Number(s.client_id) === Number(id)) ||
           stops[stopIndex] ||
           {};
 
@@ -549,32 +548,31 @@ const waypoints =
 
         const el = document.createElement("div");
         el.className = "do-client-marker";
-        el.style.background = color;
+        el.style.setProperty("--truck-color", color);
+        el.dataset.etat = "pending";
+        el.dataset.retard = String(estEnRetard(stop));
         el.textContent = String(id);
 
         const marker = new maplibregl.Marker({ element: el })
-          .setLngLat(
-  waypoints[stopIndex + 1] || toLngLat(client)
-)
+          .setLngLat(waypoints[stopIndex + 1] || toLngLat(client))
           .setPopup(
-            new maplibregl.Popup({
-              offset: 16,
-              maxWidth: "280px"
-            }).setHTML(popupHtml)
+            new maplibregl.Popup({ offset: 16, maxWidth: "280px" }).setHTML(popupHtml)
           )
           .addTo(map);
 
         markersRef.current.push(marker);
+        clientMarkersRef.current.push({ el, id, stop, etat: "pending" });
       });
 
-      // CAMION CLIQUABLE
+      // Camion cliquable : flèche de cap, icône et numéro.
       const truckEl = document.createElement("button");
 
       truckEl.type = "button";
       truckEl.className = "do-truck-marker";
       truckEl.style.borderColor = color;
+      truckEl.style.setProperty("--truck-color", color);
       truckEl.setAttribute("aria-label", `Suivre le camion ${idx + 1}`);
-      truckEl.innerHTML = `🚚<small>${idx + 1}</small>`;
+      truckEl.innerHTML = `<span class="do-truck-arrow"></span>🚚<small>${idx + 1}</small>`;
 
       truckEl.addEventListener("click", (event) => {
         event.preventDefault();
@@ -593,27 +591,25 @@ const waypoints =
       truckMarker.getElement().style.pointerEvents = "auto";
 
       markersRef.current.push(truckMarker);
-
       truckMarkerRefs.current[idx] = truckMarker;
-      routeCoordsRef.current[idx] = coords;
+      tracksRef.current[idx] = buildTrack(coords);
     });
+
+    boundsRef.current = bounds;
 
     // Vue globale au chargement initial
     if (optimization.routes.length) {
       map.fitBounds(bounds, {
-        padding: {
-          top: 65,
-          bottom: 65,
-          left: 65,
-          right: 390
-        },
+        padding: { top: 65, bottom: 65, left: 65, right: 390 },
         maxZoom: instance.mode === "petite" ? 14 : 11,
         pitch: 35,
         bearing: -8,
         duration: 800
       });
     }
-  }, [instance, optimization, ready, roadFeatures]);
+
+    renderFrame(clockRef.current);
+  }, [instance, optimization, ready, roadFeatures, focusTruck, renderFrame]);
 
   // =========================================================
   // MISE EN ÉVIDENCE DE LA ROUTE SÉLECTIONNÉE
@@ -625,116 +621,57 @@ const waypoints =
     if (!map || !ready) return;
 
     routes.forEach((_, idx) => {
-      const layerId = `truck-route-${idx}`;
+      const base = `truck-route-${idx}`;
+      const done = `truck-done-${idx}`;
 
-      if (!map.getLayer(layerId)) return;
+      if (!map.getLayer(base)) return;
 
-      map.setPaintProperty(
-        layerId,
-        "line-width",
-        idx === selected ? 7 : 3.5
-      );
+      const actif = idx === selected;
 
-      map.setPaintProperty(
-        layerId,
-        "line-opacity",
-        idx === selected ? 1 : 0.45
-      );
+      map.setPaintProperty(base, "line-width", actif ? 6 : 3.5);
+      map.setPaintProperty(base, "line-opacity", actif ? 0.6 : 0.3);
+      map.setPaintProperty(done, "line-width", actif ? 8 : 5);
+      map.setPaintProperty(done, "line-opacity", actif ? 1 : 0.7);
     });
-  }, [selected, routes, ready]);
+  }, [selected, routes, ready, roadFeatures]);
 
   // =========================================================
   // HORLOGE UNIQUE : TOUS LES CAMIONS AVANCENT ENSEMBLE
+  // Une image à chaque rafraîchissement de l'écran : le mouvement est continu.
   // =========================================================
 
   useEffect(() => {
     if (!isPlaying) return;
 
-    const timer = setInterval(() => {
-      setSimulationMinute((previous) =>
-        Math.min(globalDuration, previous + speed)
-      );
-    }, 1000);
+    let frame;
+    let last = performance.now();
+    let lastTrail = 0;
 
-    return () => clearInterval(timer);
-  }, [isPlaying, globalDuration, speed]);
+    const tick = (now) => {
+      const dt = Math.min(0.25, (now - last) / 1000);
+      last = now;
 
-  useEffect(() => {
-    if (isPlaying && simulationMinute >= globalDuration) {
-      setIsPlaying(false);
-    }
-  }, [simulationMinute, globalDuration, isPlaying]);
+      const next = Math.min(globalDuration, clockRef.current + speed * dt);
+      const withTrail = now - lastTrail > 100;
+      if (withTrail) lastTrail = now;
 
-  // =========================================================
-  // DÉPLACEMENT DE TOUS LES CAMIONS
-  // =========================================================
+      clockRef.current = next;
+      setSimulationMinute(Math.floor(next));
+      renderFrame(next, { trails: withTrail });
 
-  useEffect(() => {
-    routes.forEach((_, idx) => {
-      const coords = routeCoordsRef.current[idx];
-      const marker = truckMarkerRefs.current[idx];
-      const truckDetail = details[idx];
-
-      if (!coords || !marker) return;
-
-      const truckDuration = getRouteDuration(truckDetail);
-
-      const truckProgress = Math.min(
-        1,
-        simulationMinute / truckDuration
-      );
-
-      const position = getPositionOnRoute(
-        coords,
-        truckProgress
-      );
-
-      if (position) {
-        marker.setLngLat(position);
+      if (next >= globalDuration) {
+        renderFrame(next);
+        setIsPlaying(false);
+        return;
       }
-    });
-  }, [simulationMinute, routes, details, roadFeatures]);
 
-  // =========================================================
-  // CAMÉRA : SUIVI CONTINU DU CAMION SÉLECTIONNÉ
-  // =========================================================
+      frame = requestAnimationFrame(tick);
+    };
 
-  useEffect(() => {
-    const map = mapRef.current;
+    frame = requestAnimationFrame(tick);
 
-    if (!map || !ready || !followTruckRef.current) return;
-
-    const coords = routeCoordsRef.current[selected];
-    const marker = truckMarkerRefs.current[selected];
-
-    if (!coords?.length || !marker) return;
-
-    const truckPosition = marker.getLngLat();
-
-    const truckDuration = getRouteDuration(details[selected]);
-
-    const truckProgress = Math.min(
-      1,
-      simulationMinute / truckDuration
-    );
-
-    const bearing = getRouteBearing(coords, truckProgress);
-
-    const lookAhead = Math.min(1, truckProgress + 0.012);
-    const target = getPositionOnRoute(coords, lookAhead);
-
-    map.easeTo({
-      center: target || [
-        truckPosition.lng,
-        truckPosition.lat
-      ],
-      zoom: 18,
-      pitch: 78,
-      bearing,
-      duration: isPlaying ? 850 : 500,
-      essential: true
-    });
-  }, [simulationMinute, selected, ready, isPlaying, details]);
+    return () => cancelAnimationFrame(frame);
+  }, [isPlaying, globalDuration, speed, renderFrame]);
 
   // =========================================================
   // INFORMATIONS DE CHAQUE CAMION
@@ -754,10 +691,11 @@ const waypoints =
         <div>
           <span className="eyebrow">SUIVI DES LIVRAISONS</span>
 
-          <h2>Flotte et tournées optimisées</h2>
+          <h2>Carte des tournées</h2>
 
           <p>
             Tous les camions avancent simultanément sur leurs propres tournées.
+            Le détail des camions est dans « Flotte », celui des clients dans « Clients ».
           </p>
         </div>
 
@@ -785,11 +723,23 @@ const waypoints =
               : "Vue globale — Cliquez sur un camion pour le suivre"}
           </div>
 
+          {followTruck && (
+            <button
+              type="button"
+              className="do-map-overview"
+              onClick={vueEnsemble}
+            >
+              Vue d'ensemble
+            </button>
+          )}
+
           <div className="map-legend">
             <span><i className="legend-depot" /> Dépôt</span>
-            <span><i className="legend-client" /> Clients</span>
-            <span>🚚 Camions</span>
-            <span>— Tournées</span>
+            <span><i className="legend-wait" /> Client à livrer</span>
+            <span><i className="legend-done" /> Livré</span>
+            <span><i className="legend-late" /> Retard prévu</span>
+            <span>🚚 Camion (flèche = direction)</span>
+            <span>— Trajet parcouru / restant</span>
           </div>
 
         </div>
@@ -815,9 +765,7 @@ const waypoints =
                   type="button"
                   className={`do-truck-card ${selected === i ? "active" : ""}`}
                   onClick={() => focusTruck(i)}
-                  style={{
-                    "--truck-color": COLORS[i % COLORS.length]
-                  }}
+                  style={{ "--truck-color": couleurCamion(i) }}
                 >
 
                   <span className="do-truck-icon">🚚</span>
@@ -894,8 +842,8 @@ const waypoints =
               <button
                 className="do-start-button"
                 onClick={() => {
-                  if (simulationMinute >= globalDuration) {
-                    setSimulationMinute(0);
+                  if (clockRef.current >= globalDuration) {
+                    setClock(0);
                   }
 
                   setIsPlaying(true);
@@ -914,7 +862,7 @@ const waypoints =
 
               <button
                 onClick={() => {
-                  setSimulationMinute(0);
+                  setClock(0);
                   setIsPlaying(false);
                 }}
               >
@@ -950,7 +898,7 @@ const waypoints =
 
               <div>
                 <span className="do-global-eyebrow">
-                  TOURNÉE SÉLECTIONNÉE
+                  SUIVI EN DIRECT
                 </span>
 
                 <h3>Camion {selected + 1}</h3>
@@ -958,42 +906,8 @@ const waypoints =
 
               <span
                 className="do-selected-color"
-                style={{
-                  background: COLORS[selected % COLORS.length]
-                }}
+                style={{ background: couleurCamion(selected) }}
               />
-
-            </div>
-
-            <div className="do-kpis">
-
-              <div>
-                <small>Distance</small>
-                <strong>{detail.distance_km ?? "—"} km</strong>
-              </div>
-
-              <div>
-                <small>Charge</small>
-                <strong>
-                  {detail.load ?? "—"}/
-                  {detail.capacity ?? instance?.capacite_vehicule ?? "—"}
-                </strong>
-              </div>
-
-              <div>
-                <small>Retour dépôt</small>
-                <strong>{minutes(detail.return_time_min)}</strong>
-              </div>
-
-              <div>
-                <small>Clients</small>
-                <strong>{route.length}</strong>
-              </div>
-
-              <div style={{ gridColumn: "1 / -1" }}>
-                <small>CO₂ estimé</small>
-                <strong>{detail.co2_kg ?? "—"} kg</strong>
-              </div>
 
             </div>
 
@@ -1001,17 +915,12 @@ const waypoints =
 
               <div className="do-simulation-header">
 
-                <strong>Suivi du camion {selected + 1}</strong>
+                <strong>État du camion {selected + 1}</strong>
 
                 <span className={`do-status ${simulation.statusType}`}>
                   {simulation.status}
                 </span>
 
-              </div>
-
-              <div className="do-simulation-clock">
-                Temps commun :
-                <strong> {minutes(simulationMinute)}</strong>
               </div>
 
               <div className="do-simulation-progress">
@@ -1054,113 +963,6 @@ const waypoints =
 
               </div>
 
-            </div>
-
-            <h4 className="do-stops-title">
-              Planning des livraisons
-            </h4>
-
-            <ol className="do-stop-list">
-
-              {route.map((id, i) => {
-                const c = clientById.get(Number(id)) || {};
-
-                const s =
-                  detail.stops?.find(
-                    (x) => Number(x.client_id) === Number(id)
-                  ) ||
-                  detail.stops?.[i] ||
-                  {};
-
-                const isDone =
-                  Number(s.service_end_min) <= simulationMinute;
-
-                const isCurrent =
-                  Number(s.service_start_min) <= simulationMinute &&
-                  Number(s.service_end_min) > simulationMinute;
-
-                return (
-                  <li
-                    key={`${id}-${i}`}
-                    className={isDone ? "do-stop-done" : ""}
-                  >
-
-                    <span className="do-stop-number">
-                      {isDone ? "✓" : i + 1}
-                    </span>
-
-                    <div>
-
-                      <strong>
-                        {c.name || `Client ${id}`}
-                      </strong>
-
-                      <small>
-                        {c.city || ""} · {s.demand ?? c.demand ?? "—"} unités
-                      </small>
-
-                      {isCurrent && (
-                        <span className="do-stop-current">
-                          Livraison en cours
-                        </span>
-                      )}
-
-                      {isDone && (
-                        <span className="do-stop-completed">
-                          Livraison terminée
-                        </span>
-                      )}
-
-                      <div className="do-time-grid">
-
-                        <span>
-                          Arrivée <b>{minutes(s.arrival_min)}</b>
-                        </span>
-
-                        <span>
-                          Attente <b>{s.waiting_min ?? 0} min</b>
-                        </span>
-
-                        <span>
-                          Début <b>{minutes(s.service_start_min)}</b>
-                        </span>
-
-                        <span>
-                          Fin <b>{minutes(s.service_end_min)}</b>
-                        </span>
-
-                        <span>
-                          Fenêtre <b>{minutes(s.ready_min)}–{minutes(s.due_min)}</b>
-                        </span>
-
-                      </div>
-
-                    </div>
-
-                  </li>
-                );
-              })}
-
-            </ol>
-
-            <div
-              className={`do-return ${
-                detail.return_within_depot_window === false
-                  ? "warning"
-                  : ""
-              }`}
-            >
-              Retour au dépôt :
-
-              <strong>
-                {" "}{minutes(detail.return_time_min)}
-              </strong>
-
-              {" · "}
-
-              {detail.return_within_depot_window === false
-                ? "Hors fenêtre"
-                : "Dans la fenêtre"}
             </div>
 
           </div>
