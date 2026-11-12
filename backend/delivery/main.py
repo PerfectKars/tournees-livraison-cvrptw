@@ -9,6 +9,7 @@ import uuid
 from urllib.request import urlopen
 from urllib.parse import quote
 
+from sol_to_json import ErreurBackend, read_instance
 from .solver_bridge import run_alns  # Julia (ou ALNS Python si matrice OSRM)
 
 app = FastAPI(
@@ -26,6 +27,8 @@ app.add_middleware(
 )
 
 DATA_DIR = Path(__file__).parent / "data"
+# Instances de référence (Solomon, Homberger, XTW) : instances/<jeu>/<nom>.
+DOSSIER_BENCHMARK = Path(__file__).resolve().parents[2] / "instances"
 SOLOMON_FILE = DATA_DIR / "C1_2_1.txt"
 FRANCE_FILE = DATA_DIR / "france_clients.json"
 OSRM_MATRIX_FILE = DATA_DIR / "osrm_matrix.json"
@@ -351,8 +354,62 @@ def charger_instance_grande():
         GRANDE_FILE, "GRANDE_CAPACITE", "grande", 200
     )
 
+
+# ==========================================
+# INSTANCES DU DOSSIER instances/ (mode "jeu/nom", ex. "solomon/C101")
+# ==========================================
+
+# Seuls des noms de la forme jeu/nom, sans point ni "..", sont acceptés : le
+# nom ne peut donc pas sortir du dossier instances/.
+MODE_BENCHMARK = re.compile(r"^(solomon|homberger|xtw)/[A-Za-z0-9_-]+$")
+
+
+def fichier_benchmark(mode):
+    """Chemin du fichier d'une instance 'jeu/nom', ou None si absente."""
+    if not MODE_BENCHMARK.match(mode):
+        return None
+    jeu, nom = mode.split("/")
+    for extension in (".txt", ".vrp"):
+        chemin = DOSSIER_BENCHMARK / jeu / (nom + extension)
+        if chemin.is_file():
+            return chemin
+    return None
+
+
+def mode_connu(mode):
+    return mode in INSTANCES or fichier_benchmark(mode) is not None
+
+
+def charger_instance_benchmark(mode):
+    """Charge une instance du dossier instances/ au format attendu par le front
+    (mêmes champs que les instances synthétiques : demand, ready, due...)."""
+    try:
+        lue = read_instance(fichier_benchmark(mode))
+    except ErreurBackend as erreur:
+        raise HTTPException(status_code=500, detail=erreur.message)
+
+    def point(c):
+        return {"id": c["id"], "x": c["x"], "y": c["y"],
+                "demand": c["demande"], "ready": c["ouverture"],
+                "due": c["fermeture"], "service": c["service"]}
+
+    clients = [point(lue["clients"][i]) for i in sorted(lue["clients"]) if i != 0]
+    return {
+        "nom_instance": mode.split("/")[1],
+        "mode": mode,
+        "nombre_vehicules": int(lue["nb_vehicules"]),
+        "capacite_vehicule": float(lue["capacite"]),
+        "nombre_clients": len(clients),
+        "depot": point(lue["clients"][0]),
+        "clients": clients,
+    }
+
+
 def charger_instance(mode="solomon"):
-    mode = (mode or "solomon").lower()
+    mode = (mode or "solomon")
+    if fichier_benchmark(mode) is not None:
+        return charger_instance_benchmark(mode)
+    mode = mode.lower()
 
     if mode not in INSTANCES:
         raise HTTPException(
@@ -406,10 +463,10 @@ def geometries_tournees(payload: dict):
     from urllib.parse import quote
 
     try:
-        mode = str(payload.get("mode", "france")).lower()
+        mode = str(payload.get("mode", "france"))
         routes = payload.get("routes", [])
 
-        if mode not in INSTANCES:
+        if not mode_connu(mode):
             raise HTTPException(
                 status_code=400,
                 detail=f"Instance inconnue : {mode}"
@@ -607,7 +664,7 @@ def demarrer_optimisation(
     mode: str = Query(default="solomon")
 ):
     """Lance le calcul en arrière-plan et renvoie son identifiant."""
-    if mode not in INSTANCES:
+    if not mode_connu(mode):
         raise HTTPException(status_code=400, detail=f"Instance inconnue : {mode}")
 
     job_id = uuid.uuid4().hex[:8]
