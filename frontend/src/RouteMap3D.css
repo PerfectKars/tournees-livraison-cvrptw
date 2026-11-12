@@ -586,7 +586,7 @@
 /* Camions cliquables */
 
 .do-truck-marker {
-  position: relative;
+  position: absolute;
   width: 48px;
   height: 48px;
   padding: 0;
@@ -602,7 +602,7 @@
   pointer-events: auto;
   touch-action: manipulation;
   z-index: 1000;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: box-shadow 0.15s ease;
 }
 
 .do-truck-marker:hover {
@@ -681,4 +681,30 @@
   height: 12px;
   border-radius: 50%;
   background: #172b4d;
+}
+
+/* Colonne de gauche : la carte, puis la simulation « Départ de la flotte »
+   dans son propre bloc, distinct de la liste « Flotte de livraison ». */
+.do-map-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.do-map-column .do-global-simulation {
+  margin-top: 0;
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.do-map-column .do-simulation-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.do-map-column .do-simulation-buttons button {
+  flex: 1 1 170px;
 }

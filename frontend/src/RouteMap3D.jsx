@@ -100,6 +100,14 @@ function etatClient(stop, minute) {
   return "pending";
 }
 
+// Le point visé par la caméra est à ~65 m devant le camion (en degrés), pas à
+// un pourcentage du trajet : sur une longue tournée, un pourcentage donnerait
+// des kilomètres et le camion sortirait de l'écran.
+const DEVANT = 0.0006;
+
+const pointDevant = (track, fraction) =>
+  locate(track, Math.min(1, fraction + DEVANT / (track.total || 1)))?.pos;
+
 const traceVide = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [] } };
 
 export default function RouteMap3D({ instance, optimization }) {
@@ -225,12 +233,10 @@ export default function RouteMap3D({ instance, optimization }) {
 
       if (track && loc) {
         const fraction = Math.min(1, minute / getRouteDuration(detailsRef.current[idx]));
-        const target = locate(track, Math.min(1, fraction + 0.012));
-
         camBearingRef.current = lerpAngle(camBearingRef.current, loc.bearing, 0.08);
 
         map.jumpTo({
-          center: target?.pos || loc.pos,
+          center: pointDevant(track, fraction) || loc.pos,
           zoom: 18,
           pitch: 78,
           bearing: camBearingRef.current
@@ -265,7 +271,6 @@ export default function RouteMap3D({ instance, optimization }) {
       clockRef.current / getRouteDuration(detailsRef.current[idx])
     );
     const loc = locate(track, fraction);
-    const target = locate(track, Math.min(1, fraction + 0.012));
 
     camBearingRef.current = loc.bearing;
     // L'animation de caméra prend 1,4 s : le suivi image par image attend.
@@ -274,7 +279,7 @@ export default function RouteMap3D({ instance, optimization }) {
     map.stop();
     map.resize();
     map.easeTo({
-      center: target?.pos || loc.pos,
+      center: pointDevant(track, fraction) || loc.pos,
       zoom: 18,
       pitch: 78,
       bearing: loc.bearing,
@@ -706,6 +711,8 @@ export default function RouteMap3D({ instance, optimization }) {
 
       <div className="do-map-layout">
 
+        <div className="do-map-column">
+
         <div className="map-card do-map-card">
 
           <div
@@ -741,6 +748,105 @@ export default function RouteMap3D({ instance, optimization }) {
             <span>🚚 Camion (flèche = direction)</span>
             <span>— Trajet parcouru / restant</span>
           </div>
+
+        </div>
+
+        <div className="do-global-simulation">
+
+          <div className="do-global-header">
+
+            <div>
+              <span className="do-global-eyebrow">
+                SIMULATION GLOBALE
+              </span>
+
+              <h3>Départ de la flotte</h3>
+            </div>
+
+            <span className={`do-status ${isPlaying ? "success" : "neutral"}`}>
+              {isPlaying
+                ? "En cours"
+                : simulationMinute >= globalDuration
+                  ? "Terminée"
+                  : "En pause"}
+            </span>
+
+          </div>
+
+          <div className="do-simulation-clock">
+            Temps commun :
+            <strong> {minutes(simulationMinute)}</strong>
+          </div>
+
+          <div className="do-simulation-progress">
+            <div
+              style={{
+                width: `${Math.min(
+                  100,
+                  (simulationMinute / globalDuration) * 100
+                )}%`
+              }}
+            />
+          </div>
+
+          <div className="do-progress-label">
+            Temps de simulation global · {minutes(globalDuration)} maximum
+          </div>
+
+          <div className="do-simulation-buttons">
+
+            <button
+              className="do-start-button"
+              onClick={() => {
+                if (clockRef.current >= globalDuration) {
+                  setClock(0);
+                }
+
+                setIsPlaying(true);
+              }}
+              disabled={isPlaying || !routes.length}
+            >
+              ▶ Démarrer toute la flotte
+            </button>
+
+            <button
+              onClick={() => setIsPlaying(false)}
+              disabled={!isPlaying}
+            >
+              ⏸ Pause
+            </button>
+
+            <button
+              onClick={() => {
+                setClock(0);
+                setIsPlaying(false);
+              }}
+            >
+              ↻ Recommencer
+            </button>
+
+          </div>
+
+          <div className="do-speed-control">
+
+            <label htmlFor="simulation-speed">
+              Vitesse commune de simulation
+            </label>
+
+            <select
+              id="simulation-speed"
+              value={speed}
+              onChange={(e) => setSpeed(Number(e.target.value))}
+            >
+              <option value={1}>×1 — 1 min / seconde</option>
+              <option value={5}>×5 — 5 min / seconde</option>
+              <option value={10}>×10 — 10 min / seconde</option>
+              <option value={30}>×30 — 30 min / seconde</option>
+            </select>
+
+          </div>
+
+        </div>
 
         </div>
 
@@ -792,103 +898,6 @@ export default function RouteMap3D({ instance, optimization }) {
                 </button>
               );
             })}
-
-          </div>
-
-          <div className="do-global-simulation">
-
-            <div className="do-global-header">
-
-              <div>
-                <span className="do-global-eyebrow">
-                  SIMULATION GLOBALE
-                </span>
-
-                <h3>Départ de la flotte</h3>
-              </div>
-
-              <span className={`do-status ${isPlaying ? "success" : "neutral"}`}>
-                {isPlaying
-                  ? "En cours"
-                  : simulationMinute >= globalDuration
-                    ? "Terminée"
-                    : "En pause"}
-              </span>
-
-            </div>
-
-            <div className="do-simulation-clock">
-              Temps commun :
-              <strong> {minutes(simulationMinute)}</strong>
-            </div>
-
-            <div className="do-simulation-progress">
-              <div
-                style={{
-                  width: `${Math.min(
-                    100,
-                    (simulationMinute / globalDuration) * 100
-                  )}%`
-                }}
-              />
-            </div>
-
-            <div className="do-progress-label">
-              Temps de simulation global · {minutes(globalDuration)} maximum
-            </div>
-
-            <div className="do-simulation-buttons">
-
-              <button
-                className="do-start-button"
-                onClick={() => {
-                  if (clockRef.current >= globalDuration) {
-                    setClock(0);
-                  }
-
-                  setIsPlaying(true);
-                }}
-                disabled={isPlaying || !routes.length}
-              >
-                ▶ Démarrer toute la flotte
-              </button>
-
-              <button
-                onClick={() => setIsPlaying(false)}
-                disabled={!isPlaying}
-              >
-                ⏸ Pause
-              </button>
-
-              <button
-                onClick={() => {
-                  setClock(0);
-                  setIsPlaying(false);
-                }}
-              >
-                ↻ Recommencer
-              </button>
-
-            </div>
-
-            <div className="do-speed-control">
-
-              <label htmlFor="simulation-speed">
-                Vitesse commune de simulation
-              </label>
-
-              <select
-                id="simulation-speed"
-                value={speed}
-                onChange={(e) => setSpeed(Number(e.target.value))}
-              >
-                <option value={1}>×1 — 1 min / seconde</option>
-                <option value={5}>×5 — 5 min / seconde</option>
-                <option value={10}>×10 — 10 min / seconde</option>
-                <option value={30}>×30 — 30 min / seconde</option>
-              </select>
-
-            </div>
 
           </div>
 
