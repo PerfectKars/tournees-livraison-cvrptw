@@ -8,7 +8,6 @@ import {
   Map,
   ChartNoAxesCombined,
   Settings,
-  Bell,
   Search,
   ArrowUpRight,
   Clock,
@@ -811,15 +810,6 @@ function App() {
           })}
         </div>
 
-        <div className="nav-section">
-          <p className="nav-label">PRÉFÉRENCES</p>
-
-          <button className="nav-item">
-            <Settings size={19} />
-            <span>Paramètres</span>
-          </button>
-        </div>
-
         <div className="sidebar-bottom">
           <div className="help-card">
             <div className="help-icon">
@@ -885,11 +875,6 @@ function App() {
                 }}
               />
             </div>
-
-            <button className="notification-button">
-              <Bell size={19} />
-              <i />
-            </button>
 
             <div className="top-avatar">DO</div>
           </div>
