@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from delivery.main import app as front_app
 from julia_runner import (GAP_CIBLE, ITER_SANS_LIMITE, TEMPS_MAX,
                           UN_SEUL_CALCUL, lancer_julia)
+from etude import comparer_instance, lire_etude
 from sol_to_json import ErreurBackend, convert, read_instance, write_solomon
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -237,3 +238,51 @@ def tournee_livreur(job_id: str, livreur: int):
         if t["id"] == livreur:
             return t
     raise erreur(404, "livreur", f"Pas de tournée n°{livreur}")
+
+
+# ---------------------------------------------------------------------------
+# Comparaison ALNS / recherche tabou (page Analyses)
+# ---------------------------------------------------------------------------
+
+class ComparerRequest(BaseModel):
+    instance: str = Field(description="Ex. 'homberger/C1_2_1'")
+    temps: float = Field(30, ge=5, le=120, description="Secondes par solveur")
+    seed: int = 42
+
+
+@app.get("/etude")
+def etude():
+    """Résultats de l'étude expérimentale (calculée en ligne de commande par
+    `python etude.py`) : liste vide si elle n'a pas encore été lancée."""
+    return lire_etude()
+
+
+def run_comparaison(job_id, req, source):
+    job = jobs[job_id]
+    job["statut"] = "en_cours"
+    try:
+        nom = f"{source.parent.name}/{source.stem}"
+        job["resultat"] = comparer_instance(nom, req.temps, req.seed)
+        job["statut"] = "termine"
+    except ErreurBackend as e:
+        job["statut"] = "erreur"
+        job["erreur"] = {"etape": e.etape, "message": e.message}
+    except Exception as e:  # noqa: BLE001 — bug inattendu : on le rend visible
+        job["statut"] = "erreur"
+        job["erreur"] = {"etape": "interne", "message": f"{type(e).__name__}: {e}"}
+
+
+@app.post("/comparer", status_code=202)
+def comparer(req: ComparerRequest):
+    """Lance les deux solveurs sur une instance (durée : environ 2 x temps)."""
+    source = resolve_instance(req.instance)
+    job_id = uuid.uuid4().hex[:8]
+    jobs[job_id] = {"id": job_id, "statut": "en_attente", "instance": req.instance}
+    threading.Thread(target=run_comparaison, args=(job_id, req, source),
+                     daemon=True).start()
+    return {"id": job_id, "statut": "en_attente"}
+
+
+@app.get("/comparer/{job_id}")
+def comparer_etat(job_id: str):
+    return get_job(job_id)

@@ -26,7 +26,7 @@ import {
 
 import "./App.css";
 import RouteMap3D from "./RouteMap3D";
-import { PageBenchmark } from "./Benchmark";
+import { PageAnalyses } from "./Analyses";
 import PageInstances from "./Instances";
 import { PageFlotte } from "./Fleet";
 import { PageClients } from "./Clients";
@@ -883,7 +883,7 @@ function App() {
 
           {activePage === "Carte des tournées" && afficherCarte()}
 
-          {activePage === "Analyses" && <PageBenchmark bench={benchmark} />}
+          {activePage === "Analyses" && <PageAnalyses apiUrl={API_URL} bench={benchmark} />}
 
           {activePage === "Clients" && (
             <PageClients

@@ -119,6 +119,9 @@ def resoudre(inst, iterations=20000, temps_max=60.0, seed=42,
     courant = sum(couts) + pb.prime * len(routes)    # objectif suivi
     meilleur, meilleures_routes = courant, [r[:] for r in routes]
     depart, tabou, it = sum(couts), {}, 0
+    # Courbe de convergence : [secondes, véhicules, distance] à chaque
+    # amélioration du meilleur (sert aux graphes de la page Analyses).
+    trace = [[0.0, len(routes), round(depart, 2)]]
 
     for it in range(1, iterations + 1):
         if time.time() - debut > temps_max:
@@ -146,11 +149,13 @@ def resoudre(inst, iterations=20000, temps_max=60.0, seed=42,
             couts = [pb.cout_route(r) for r in routes]
         if courant < meilleur - 1e-9:
             meilleur, meilleures_routes = courant, [r[:] for r in routes]
+            trace.append([round(time.time() - debut, 2), len(routes),
+                          round(sum(couts), 2)])
 
     return meilleures_routes, {
         "iterations": it, "cout_depart": round(depart, 3),
         "cout": round(sum(pb.cout_route(r) for r in meilleures_routes), 3),
-        "secondes": round(time.time() - debut, 2)}
+        "secondes": round(time.time() - debut, 2), "trace": trace}
 
 
 def ecrire_sol(routes, chemin):

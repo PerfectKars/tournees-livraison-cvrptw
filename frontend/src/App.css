@@ -258,3 +258,14 @@ td { padding: 13px 8px; border-bottom: 1px solid #F0EBE1; }
 .clients-adresse { display: block; color: var(--muted); font-size: 10px; margin-top: 2px; }
 .clients-camion { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; }
 .clients-camion::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--truck-color); }
+
+/* Page Analyses : comparaison ALNS / recherche tabou */
+.cmp-legende { display: flex; gap: 18px; font-size: 11px; color: var(--muted); margin: 6px 0 10px; }
+.cmp-legende i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.cmp-svg { width: 100%; height: auto; display: block; }
+.cmp-tick { font-size: 10px; fill: var(--muted); }
+.cmp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cmp-row { grid-template-columns: 74px minmax(0, 1fr) 96px; }
+.cmp-valeurs { white-space: nowrap; }
+.cmp-select { padding: 9px 13px; border-radius: 999px; border: 1px solid var(--line); background: var(--white); color: var(--ink); font-size: 12px; font-weight: 600; }
+@media (max-width: 900px) { .cmp-grid { grid-template-columns: 1fr; } }
