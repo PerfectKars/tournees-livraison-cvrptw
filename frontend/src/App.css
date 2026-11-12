@@ -239,3 +239,22 @@ td { padding: 13px 8px; border-bottom: 1px solid #F0EBE1; }
 .bench-seuil { position: absolute; top: -2px; bottom: -2px; width: 0; border-left: 1.5px dashed var(--ink); opacity: .55; }
 .bench-value { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 @media (max-width: 1250px) { .bench-grid { grid-template-columns: 1fr; } }
+
+/* Pages Flotte et Clients */
+.fleet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin-bottom: 24px; }
+.fleet-card { display: flex; flex-direction: column; gap: 9px; text-align: left; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--white); color: var(--ink); box-shadow: var(--shadow); }
+.fleet-card.active { border-color: var(--truck-color); box-shadow: 0 0 0 2px var(--truck-color); }
+.fleet-card-head { display: flex; align-items: center; gap: 8px; }
+.fleet-card-head small { margin-left: auto; color: var(--muted); }
+.fleet-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--truck-color); }
+.fleet-bar { height: 8px; border-radius: 5px; background: var(--paper-deep); overflow: hidden; }
+.fleet-bar i { display: block; height: 100%; background: var(--truck-color); border-radius: 5px; }
+.fleet-card-line { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+.clients-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.clients-tools select { border: 1px solid var(--line); border-radius: 999px; padding: 8px 11px; background: #F8F5ED; color: var(--ink); font-size: 11px; }
+.clients-search { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; background: #F4F0E7; color: #929284; }
+.clients-search input { border: 0; outline: 0; background: transparent; width: 210px; font-size: 12px; color: var(--ink); }
+.select-button.on { background: var(--sage-pale); border-color: var(--sage); color: var(--sage-dark); font-weight: 700; }
+.clients-adresse { display: block; color: var(--muted); font-size: 10px; margin-top: 2px; }
+.clients-camion { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; }
+.clients-camion::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--truck-color); }

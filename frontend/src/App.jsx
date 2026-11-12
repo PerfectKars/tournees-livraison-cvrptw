@@ -27,6 +27,8 @@ import {
 import "./App.css";
 import RouteMap3D from "./RouteMap3D";
 import { PageBenchmark } from "./Benchmark";
+import { PageFlotte } from "./Fleet";
+import { PageClients } from "./Clients";
 import { useBenchmark } from "./useBenchmark";
 
 const API_URL = "http://127.0.0.1:8000";
@@ -52,6 +54,7 @@ function App() {
   const [activePage, setActivePage] = useState("Dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mode, setMode] = useState("petite");
+  const [recherche, setRecherche] = useState("");
 
   // Données de l'instance
   const [instance, setInstance] = useState(null);
@@ -759,20 +762,6 @@ function App() {
   );
 
   // Pages en préparation
-  const afficherPageEnPreparation = () => (
-    <div className="panel empty-state">
-      <div className="empty-state-icon">
-        <Activity size={28} />
-      </div>
-
-      <strong>Page {activePage}</strong>
-
-      <p>
-        Cette section sera développée dans une prochaine étape.
-      </p>
-    </div>
-  );
-
   return (
     <div className="app-shell">
       {/* SIDEBAR */}
@@ -887,8 +876,14 @@ function App() {
           <div className="topbar-right">
             <div className="search-box">
               <Search size={17} />
-              <input placeholder="Rechercher..." />
-              <span>⌘ K</span>
+              <input
+                placeholder="Rechercher un client..."
+                value={recherche}
+                onChange={(e) => {
+                  setRecherche(e.target.value);
+                  if (activePage !== "Clients") changerPage("Clients");
+                }}
+              />
             </div>
 
             <button className="notification-button">
@@ -910,8 +905,22 @@ function App() {
 
           {activePage === "Analyses" && <PageBenchmark bench={benchmark} />}
 
-          {["Clients", "Flotte"].includes(activePage) &&
-            afficherPageEnPreparation()}
+          {activePage === "Clients" && (
+            <PageClients
+              instance={instance}
+              optimization={optimization}
+              recherche={recherche}
+              setRecherche={setRecherche}
+            />
+          )}
+
+          {activePage === "Flotte" && (
+            <PageFlotte
+              instance={instance}
+              optimization={optimization}
+              boutonOptimisation={boutonOptimisation}
+            />
+          )}
 
           {error && (
             <div className="error-message">
