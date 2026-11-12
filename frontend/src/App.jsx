@@ -21,31 +21,26 @@ import {
   CalendarDays,
   ChevronRight,
   Leaf,
+  ListFilter,
   TriangleAlert,
 } from "lucide-react";
 
 import "./App.css";
 import RouteMap3D from "./RouteMap3D";
 import { PageBenchmark } from "./Benchmark";
+import PageInstances from "./Instances";
 import { useBenchmark } from "./useBenchmark";
 
 const API_URL = "http://127.0.0.1:8000";
 
 const navigation = [
   { label: "Dashboard", icon: LayoutDashboard },
+  { label: "Instances", icon: ListFilter },
   { label: "Optimisation", icon: Route },
   { label: "Clients", icon: Users },
   { label: "Flotte", icon: Truck },
   { label: "Carte des tournées", icon: Map },
   { label: "Analyses", icon: ChartNoAxesCombined },
-];
-
-const instances = [
-  { value: "france", label: "France — GPS + OSRM" },
-  { value: "petite", label: "Petite livraison — 20 clients" },
-  { value: "demande", label: "Forte demande — 50 clients" },
-  { value: "horaires", label: "Fenêtres horaires — 30 clients" },
-  { value: "grande", label: "Grande capacité — 200 clients" },
 ];
 
 function App() {
@@ -81,7 +76,7 @@ function App() {
 
       try {
         const response = await fetch(
-          `${API_URL}/api/instance?mode=${mode}`
+          `${API_URL}/api/instance?mode=${encodeURIComponent(mode)}`
         );
 
         if (!response.ok) {
@@ -135,7 +130,7 @@ function App() {
       // Le calcul tourne en arrière-plan (jusqu'à 60 s) : on le lance, puis on
       // interroge son état au lieu de laisser la page bloquée.
       const urlDepart =
-        `${API_URL}/api/optimize/start?mode=${mode}` +
+        `${API_URL}/api/optimize/start?mode=${encodeURIComponent(mode)}` +
         `&iterations=${iterations}&removal_rate=0.15`;
 
       console.log("Requête envoyée :", urlDepart);
@@ -219,28 +214,17 @@ function App() {
     setSidebarOpen(false);
   };
 
-  // Sélecteur d'instance réutilisable
+  // Instance courante + accès à la page de choix (31 instances : une liste
+  // déroulante serait trop longue, d'où une page avec filtres).
   const selecteurInstance = (
-    <select
-      value={mode}
-      onChange={(event) => setMode(event.target.value)}
-      aria-label="Choisir le mode de données"
-      style={{
-        padding: "11px 13px",
-        borderRadius: "999px",
-        border: "1px solid var(--line)",
-        background: "var(--white)",
-        color: "var(--ink)",
-        fontSize: "12px",
-        fontWeight: 700,
-      }}
+    <button
+      className="select-button"
+      onClick={() => changerPage("Instances")}
+      aria-label="Changer d'instance"
     >
-      {instances.map((item) => (
-        <option key={item.value} value={item.value}>
-          {item.label}
-        </option>
-      ))}
-    </select>
+      Instance : <strong>{instance?.nom_instance || mode.split("/").pop()}</strong>
+      {instance ? ` (${instance.nombre_clients} clients)` : ""} — Changer
+    </button>
   );
 
   // Bouton de lancement réutilisable
@@ -903,6 +887,17 @@ function App() {
         {/* AFFICHAGE DES PAGES */}
         <div className="page-container">
           {activePage === "Dashboard" && afficherDashboard()}
+
+          {activePage === "Instances" && (
+            <PageInstances
+              apiUrl={API_URL}
+              mode={mode}
+              onChoisir={(choix) => {
+                setMode(choix);
+                changerPage("Dashboard");
+              }}
+            />
+          )}
 
           {activePage === "Optimisation" && afficherOptimisation()}
 
